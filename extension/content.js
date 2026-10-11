@@ -342,6 +342,14 @@
      so the checkout still maps to the account; the plain page is the fallback
      when the worker cannot answer. */
   const ORDER_URL = "https://jointracely.com/order";
+  /* Tracely's Settings page (options.html): the account, the plan, Google Docs,
+     the sites with auto-check on. A content script cannot open an extension
+     page, so the worker does (background.js "tracely-openSettings") — bringing
+     an open Settings tab forward rather than stacking another — at `section`
+     ("account", "checking", "docs", "sites", "privacy") when one is given. */
+  function openSettings(section) {
+    return Promise.resolve(sendMsg({ type: "tracely-openSettings", section: section ?? null })).catch(() => null);
+  }
   function openOrderPage() {
     Promise.resolve(sendMsg({ type: "tracely-open-order" })).catch(() => null).then((r) => {
       if (!r?.ok) window.open(ORDER_URL, "_blank", "noopener,noreferrer");
@@ -2685,6 +2693,8 @@
     for (const t of tips ?? []) c[tipCat(t)]++;
     return c;
   }
+  // Settings (options.html), the gear in the header (owner, 2026-10-11).
+  const GEAR_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
   const GRIP_SVG = `<svg viewBox="0 0 10 16" width="8" height="14"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></g></svg>`;
   function panelHeadHtml(counts, statusMsg, statusErr) {
     const c = counts ?? {};
@@ -2698,6 +2708,7 @@
       <span class="grip" aria-hidden="true">${GRIP_SVG}</span>
       <span class="name">Tracely</span>
       <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
+      <button class="hbtn" id="panelSettings" title="Settings" aria-label="Tracely settings">${GEAR_SVG}</button>
       <button class="close" id="panelClose" title="Close" aria-label="Close">✕</button>
     </div>
     <div class="tally" role="group" aria-label="Tracely findings">${chips.join("")}</div>`;
@@ -3153,6 +3164,7 @@
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
+    shadow.getElementById("panelSettings")?.addEventListener("click", () => openSettings());
     // A count in the header opens the first card of its kind.
     for (const chip of shadow.querySelectorAll("[data-jump]")) {
       chip.addEventListener("click", () => {
@@ -3619,6 +3631,17 @@
       transition: background-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
     .close:hover { background: var(--hover); color: var(--text); }
+    /* Settings: the same 28px icon button, just before the close. */
+    .hbtn {
+      margin-left: 8px; flex-shrink: 0; width: 28px; height: 28px; border-radius: var(--r-btn);
+      border: none; background: transparent; color: var(--label); cursor: pointer; padding: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
+    }
+    .hbtn svg { width: 16px; height: 16px; display: block; }
+    .hbtn:hover { background: var(--hover); color: var(--text); }
+    .hbtn:active { background: var(--pressed); color: var(--text); }
+    .hbtn + .close { margin-left: 2px; }
     .close:active { background: var(--pressed); color: var(--text); }
     /* The one legend (never colour alone): what each underline's LINE means.
        A strip stuck to the list's bottom edge while the Claims group is in
@@ -3972,7 +3995,7 @@
        control that is not a text field (those keep the accent ring), the
        list's thin scrollbar, and the one reduced-motion block. */
     .foot .act, .undo-strip .act, .ready-ping .act, .walk-strip .act, .fixes-acts .act, .fx .row .act, .src-actions .act { height: 28px; padding: 0 10px; font-size: 12px; }
-    button.act:focus-visible, .deep-btn:focus-visible, .chip:focus-visible, .card.shut:focus-visible, .card[aria-expanded="true"]:focus-visible, .launcher:focus-visible, .close:focus-visible, .x:focus-visible, .pill:focus-visible,
+    button.act:focus-visible, .deep-btn:focus-visible, .chip:focus-visible, .card.shut:focus-visible, .card[aria-expanded="true"]:focus-visible, .launcher:focus-visible, .close:focus-visible, .hbtn:focus-visible, .x:focus-visible, .pill:focus-visible,
     .ev-toggle:focus-visible, .src-unread-toggle:focus-visible, .src a.src-open:focus-visible, .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
     /* The two text links outside the source rows ("See plans" under a locked
        deep dive, the consent foot's privacy link): the same ring, as .src a. */
@@ -10163,7 +10186,7 @@
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act" id="turnOff" title="Stop checking Google Docs. Turn it back on from Tracely's button or its options.">Turn off</button>
+            <button class="act" id="turnOff" title="Stop checking Google Docs. Turn it back on from Tracely's button or Settings.">Turn off</button>
           </div>
         </div>`;
       }
