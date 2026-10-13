@@ -5,7 +5,7 @@ deploys or ships, in the same PR or right after. Dates are UTC.
 
 | Surface | Live version | Since | How it got there | Who can do it |
 |---|---|---|---|---|
-| **Server** `api.jointracely.com` | main `9c70612` (#334 Try Tracely; also brings #317 live source search, #318 citations in context, #327 receipts in parts) | 2026-10-13 00:51 | `server/DEPLOY.md` runbook incl. the new `extension/content.js` copy; backup `app.bak-20261012-175105` (+ `/srv/tracely/env.bak-20261012-175105`); tag `server/20261013-9c70612`; `healthcheck.sh --demo` green | Sam (SSH to the Linode) |
+| **Server** `api.jointracely.com` | main `0945487` (#338 reverts #327's parts verifier — measured worse in #337; on top of `9c70612`, #334 Try Tracely, which also brought #317 live source search and #318 citations in context) | 2026-10-13 03:52 | `server/DEPLOY.md` runbook incl. the `extension/content.js` copy; backup `app.bak-20261012-205213` (previous: `app.bak-20261012-175105`, env `/srv/tracely/env.bak-20261012-175105`); tag `server/20261013-0945487`; `healthcheck.sh --demo` green | Sam (SSH to the Linode) |
 | **Chrome extension** (Web Store, id `dffmoeebkkghhgcklkbmaibfhgiegmdm`) | **2.21.1** published | early October 2026 (store zip of 10-01) | store zip from `server/scripts/pack-extension.sh` | Sam (publisher account) |
 | Chrome extension — store draft | 2.21.18 **submitted from the beta zip — cancel it**; `Tracely-2.21.27-store.zip` is built from main `a71e4aa` and waits in Sam's Downloads | 2026-10-09 | Developer Dashboard | Sam |
 | Chrome extension — testers | 2.21.18-beta (Merrick's zip); main is 2.21.27 | 2026-10-04 | `pack-extension.sh --beta` + Load unpacked | either (beta token is in the server's `.env`) |
