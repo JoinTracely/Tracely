@@ -262,11 +262,10 @@ remembered per site (`tracely.widget.panelPos`), and a double-click puts it
 back. Tests: `server/test/ext-panel-layout.test.js`.
 
 Beside the name, a neutral chip says what Tracely reads the writing as
-(`genreTitle`; owner, 2026-10-13). It shows detectGenre's 17 kinds, and for
-an essay its own kind (`essayTypeOf`): argumentative, informative, compare
-and contrast, cause and effect, book report or blog post. It is read off
-the words, and below 40 words it shows nothing. It is display only: what is
-checked still follows `detectGenre`. Tests:
+(owner, 2026-10-13). Since 2.21.57 it names one of 56 kinds, and only when
+Tracely is sure (`readKind` → `docShown`, `kindTitle`; "56 kinds, named only
+when sure", below). An essay's own kind needs 40 words. It is display only:
+what is checked follows the kind's genre. Tests:
 `server/test/ext-writing-kind.test.js`.
 
 ## No overreach: one sentence at a time, no writing tips
@@ -600,7 +599,102 @@ documents (`server/test/fixtures/`): the 67 it was tuned on, all right (main:
 11), 49 after general fixes; and 40 more written blind after those, scored
 once and left untuned: 38 right (main: 8) — keep that set untuned, it is the
 honest number. Both blind sets must stay at 90% or better. Tests:
-`server/test/ext-writing-types.test.js`.
+`server/test/ext-writing-types.test.js`. Since 2.21.57 these 18 are the
+genres under 56 kinds (below).
+
+## 56 kinds, named only when sure
+
+Since 2.21.57 (owner, 2026-10-15: "Fix it for a plethora of writing, so it
+is very unlikely that tracely will detect something wrong. Before
+incorporating, list all things that could be labeled."). The owner approved
+56 kinds in five groups by what they change. `WRITING_KINDS` (content.js)
+holds each kind's header title, its genre (which decides the checks, so a
+new kind is checked like its group's old kind), its "Reading this as …"
+label, and the broader kind a near miss falls back to.
+- **Checked, with a Works Cited:** argumentative, informative, compare and
+  contrast, cause and effect, problem and solution, rhetorical analysis,
+  summary or response, literary analysis, book report, research paper,
+  literature review, proposal, lab report, case study, and "Essay" when it
+  is none of them.
+- **Checked, sources named in the sentence:** speech, debate case,
+  presentation script, news article, op-ed or editorial, feature or
+  interview, press release, blog post, discussion post.
+- **Cites its own documents:** DBQ, synthesis essay ("(Source A)").
+- **The writer's own account:** personal essay, college or scholarship
+  essay, reflection, journal entry, review, bio, social media post, email,
+  letter, cover letter, recommendation letter, memo, resume, notes, outline,
+  study guide, meeting notes, peer review, instructions or recipe, lesson
+  plan, annotated bibliography, and a reference list on its own.
+- **Quiet:** homework, math work, survey, code, poem, song lyrics, story,
+  script.
+
+Three kinds moved group on the owner's yes. A blog post and an op-ed (a
+letter to the editor included) name their sources in the sentence, with no
+Works Cited. A reference list on its own (`workscited`, genre `annotated`)
+is never asked where each entry is cited.
+
+**How it decides** (`readKind` → `kindScores`). Every kind is scored and
+the highest wins, so one stray cue no longer decides. Before, a "Source B"
+made an AP Lang synthesis essay a DBQ.
+- **9.5 and up:** a shape that is nothing else (code, "[Chorus]", "FOR
+  IMMEDIATE RELEASE", "Resolved:"), or the document naming itself in its
+  title block ("Rhetorical Analysis", "Peer Review for Kenji's Essay"). A
+  title naming a kind of document (outline, peer review, reflection,
+  proposal, study guide, lesson plan, summary) outranks one naming an essay
+  kind, so "Argument essay outline" is an outline.
+- **8 to 9:** strong forms: a letter's two ends or its signature block, a
+  memo's head, minutes, a lesson plan, slide cues, a survey's choices, a
+  reference list, an interview's questions.
+- **6 to 8:** the old order's shapes as strengths, earlier ones stronger
+  (homework, script, resume, DBQ, annotated bibliography, speech, lab, poem,
+  notes).
+- **4 to 6:** the essays' and the voices' cues (research, literary,
+  rhetorical, summary, news, feature, story, personal, college essay,
+  reflection).
+- **1:** only an essay's own words (`essayKindOf`). A sub-kind is named only
+  when its words clearly lead; two close together, or none leading, is
+  "essay".
+
+In a field the site counts too (`placeKind`). A mail client's box is an
+email (a cover letter or a reference sent by mail stays one), a class
+discussion board a discussion post, a social site a post, a review site a
+review, an opinion page an op-ed, LinkedIn's About a bio. Docs passes no
+place.
+
+**The header names a kind only when very sure** (`KIND_SURE`, a score of 7
+or more; `docShown`). The checks follow the kind's genre either way
+(`docKind`), and a quiet kind still says why it is quiet. Owner, 2026-10-15,
+chose this over a chip on every document. Measured on the first 625
+documents, before the fresh set was written: from 7 up a kind was wrong 2%
+of the time, from 4 to 7 one time in six, and read off an essay's words
+alone (score 1) 43% of the time, often not an essay at all. So a plain
+essay usually shows no chip.
+
+**Measured** on invented documents, five or more of every kind in each set,
+by 24 writers who never saw the detector (`server/test/fixtures/`):
+- **Tuned on (313):** 86.9% the exact kind, 3.2% in a group that changes
+  the checks; the header names 63% and is wrong on 0.3%.
+- **Scored blind once, then learned from (312):** 75.0% exact and 13.1% in
+  the wrong group blind (main: 37.2%); 80.1% and 8.7% after; the header
+  names 63% and is wrong on 1.6%.
+- **Fresh, scored once and untuned (312), the honest number:** 72.1% exact,
+  13.5% in the wrong group (5 checked documents read as quiet). The header
+  was wrong on 13.8% naming every document; naming only what it is sure of,
+  it names 57% and is wrong on 3.2%. Main on the same: 37.5% in the wrong
+  group, 12 read as quiet. Keep it untuned.
+- **The 157 older documents:** as main, but for the moves above, and two of
+  main's misses now right.
+- **Cost:** about 1 ms a read, 18 ms for 8,500 words; an unchanged text is
+  not read again (`kindRead`).
+
+What it still misses on new writing is a long tail: a first-person story
+read as a personal essay, an op-ed with no byline or masthead read as an
+argument, a prose poem, a document in a shape no rule knows yet (a recall
+notice, an R script with long comments).
+
+Not checked in a browser: the harness page stands down while the browser
+pane is hidden. Tests: `server/test/ext-writing-kinds.test.js`,
+`server/test/ext-writing-kind.test.js`.
 
 ## Works Cited when the writing needs one
 
