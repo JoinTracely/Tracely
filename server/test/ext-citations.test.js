@@ -125,7 +125,9 @@ test("the orphan pill names what happened and the fix, and carries no count", ()
 
 test("every pill and panel head that names Tracely shows its mark; the plane is only the fallback", () => {
   const CONTENT = read("content.js");
-  assert.equal((CONTENT.match(/\$\{PILL_MARK\}/g) || []).length, 4, "orphan, Docs consent pill and head, 'Tracely is off here'");
+  assert.equal((CONTENT.match(/\$\{PILL_MARK\}/g) || []).length, 4, "orphan, Docs consent pill, 'Tracely is off here', paused from Settings (2026-10-16)");
+  // A panel's head draws the mark in one solid colour (owner, 2026-10-14: "make it a solid color").
+  assert.equal((CONTENT.match(/\$\{MARK_SOLID_SVG\}/g) || []).length, 3, "the panel's head, the Docs consent card's, and the paused card's");
   assert.equal((CONTENT.match(/<span class="plane">\$\{PLANE_SVG\}<\/span>/g) || []).length, 1, "the plane in a circle only as the fallback");
   assert.match(CONTENT, /shadow\.addEventListener\("error", \(e\) => \{\n\s+if \(e\.target\?\.classList\?\.contains\("pill-mark"\)\) e\.target\.outerHTML = `<span class="plane">\$\{PLANE_SVG\}<\/span>`;\n\s+\}, true\);/, "a page that refuses data: images");
 });
@@ -362,10 +364,13 @@ test("no citation carries a retrieval or access date, and n.d. appears only when
       }
     }
   }
-  // The formatter no longer reads the clock at all — a date in a citation is
-  // the source's, never today's.
+  // A date in a citation is the source's, never today's (2.19.4: the old
+  // formatter stamped today's on every source). The one clock read is an
+  // access date the writer asked for in Settings → Citations (citeAccessed,
+  // off by default), on a web page only (ext-settings-checking.test.js).
   const src = contentSlice("  // ── citation formatting ──", "  function segmentText(");
-  assert.ok(!/new Date\(|Date\.now\(/.test(src), "formatCitation reads the clock again");
+  assert.equal((src.match(/new Date\(|Date\.now\(/g) || []).length, 1, "formatCitation reads the clock again");
+  assert.match(src, /if \(o\.citeAccessed !== true \|\| !webPage\) return \{ doc, ref: links \? ref : doc, marker \};\n\s+const now = new Date\(\);/, "only behind the switch");
 });
 
 test("every doc line stays one line that sourcesBlock parses back to its url", () => {

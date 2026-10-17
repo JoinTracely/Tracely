@@ -92,17 +92,20 @@ test("wired in both modes: the picker, the allowance, a quiet failure", () => {
   assert.equal((SRC.match(/const shown = new Set\(currentIssues\(\)\.map\(\(\{ seg \}\) => seg\.hash\)\);/g) || []).length, 2, "only flags the writer can see");
   assert.equal((SRC.match(/autoSinceUsage\+\+;/g) || []).length, 2);
   assert.equal((SRC.match(/if \(!sourcesMap\.has\(f\.id\)\) break; \/\/ failed/g) || []).length, 2, "a failed search stops the rest");
-  assert.match(SRC, /if \(!batch && !auto\) statusMsg = err\?\.message \?\? "source search failed";/, "Docs: nobody asked, so no error line");
-  assert.match(SRC, /if \(!auto\) statusMsg = err\?\.message \?\? "source search failed";/, "field");
+  // (Out of searches is the card's own block, searchGateHtml: no error line for it either.)
+  assert.match(SRC, /if \(!batch && !auto && !searchesOut\) statusMsg = err\?\.message \?\? "source search failed";/, "Docs: nobody asked, so no error line");
+  assert.match(SRC, /if \(!auto && !searchesOut\) statusMsg = err\?\.message \?\? "source search failed";/, "field");
   assert.match(SRC, /if \(!r\?\.ok\) return;\n\s+noteSearchUsage\(r\);/, "every entitlement answer, before the no-change return");
   assert.equal((SRC.match(/\$\{esc\(unbackedNote\(st, cache\.get\(seg\.hash\)\?\.verdict\)\)\}/g) || []).length, 2, "both panels");
   assert.equal((SRC.match(/\} else if \(st && !st\.list\?\.length && isEvidenceFirst\(cache\.get\(seg\.hash\)\?\.verdict\)\) \{/g) || []).length, 2, "a search that found nothing at all says so too");
 });
 
-test("the Docs card: what the search found, the way to it, and never a second search", () => {
+test("the Docs card: what the search found, the way to it, and a second search only when it found nothing", () => {
   const card = sliceBetween(SRC, "      // \"Needs evidence\": what Tracely's own search", "      const dis = dmBtn(POP_COPY.dismiss, false);");
   assert.match(card, /ev\.loading \? EVIDENCE_COPY\.looking : evFound \? EVIDENCE_COPY\.found\(evFound\) : ev\.partial \? TRIM_COPY\.head : EVIDENCE_COPY\.none\(ev\)/);
-  assert.match(card, /if \(ev\) \{ setStep\(hash, \{ step: "sources", searched: true \}\); return; \}/);
+  // Searching, or found something: opened, never searched again. Found
+  // nothing: "Find a source" is the writer asking again (ext-find-source.test.js).
+  assert.match(card, /if \(ev && !evEmpty\) \{ setStep\(hash, \{ step: "sources", searched: true \}\); return; \}/);
   assert.match(card, /if \(!hasRevision && !citedHere && !ev\) action\.addEventListener\("pointerdown"/);
   assert.match(SRC, /if \(hasRevision && evOpen\) \{\n\s+const see = dmBtn\(EVIDENCE_COPY\.see\(evFound \|\| 1\), false, \{ wide: true \}\);/);
   assert.match(SRC, /if \(isEvidenceFirst\(f\?\.verdict\)\) put\(dmHead\(DM\.amber, POP_COPY\.noBacking\), dmBody\(EVIDENCE_COPY\.none\(s\)\)\);\n\s+else if \(s\.unbacked\)/, "the sources step");

@@ -128,6 +128,28 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
 
 ## Two products on one server: keep them apart
 
+- **`/api/kind`** (2026-10-15, `lib/kind.js`, prompt `lib/prompts/kind.js`,
+  SHA-pinned): the model names the kind of writing, one of the extension's 56
+  (`WRITING_KINDS`; `test/kind.test.js` keeps the two lists equal) or
+  "unsure". It reads the first 3,600 and last 400 characters, uses the fast
+  model at low effort, and costs about 0.1¢ a call. It has its own daily
+  count (`DAILY_KIND`) and a 2 s floor. An answer for text the server
+  already has (an in-memory cache keyed by text) is free and not counted.
+  The extension asks only when `FEATURES.modelKind` is on, and it is off
+  until `eval/kinds/run.mjs` has measured it against production.
+- **The wrong-source check** (2026-10-15, `lib/citeFit.js`, prompt
+  `lib/prompts/citeFit.js`, SHA-pinned). `/api/check` runs it only when the
+  request says `citeFit: true`, and never on Explain in depth or the try-out.
+  It asks whether the source each cited sentence names could be where its
+  claim comes from (Venus cited to the OECD, PISA to NASA).
+  - It runs as one more call, admitted like a shard, on the fast model at
+    low effort. It sees at most 12 cited sentences, and only ones the check
+    called accurate.
+  - A "wrong" turns that finding into `wrong_source`, which only a build
+    that asked for it ever receives. "fits" and "unsure" change nothing,
+    and a failure leaves the check's answer.
+  - The extension sends it only while `FEATURES.citeFit` is on. That is off
+    until `eval/citefit/run.mjs` has measured it against production.
 - **The extension's routes are FROZEN while a Web Store build is in review**:
   `/api/status /api/check /api/flow /api/sources /api/cite-url /api/docs/apply
   /api/entitlement`. Their response fields, error `kind`/`message` text, the
@@ -157,6 +179,30 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   is admitted the same way, `reservation.extend`) and fall back — to the fast
   model, or to the caller's own plan — instead of ever 503ing. A pool that
   can reach expensive models must never share a day with free users.
+- **Every pool reserves before it admits** (2026-10-17 spend audit). The
+  `extension` and `app` pools used to read spend on disk only, so a burst
+  with rotating install ids all ran before the first charge landed. Now
+  `spendGate` and `appGate` hold the route's fast-model worst case
+  (`WORST_CALL`, which lists the desktop routes too) and refuse with the
+  `budget` 503 when what is in flight fills the day. A gate that holds a
+  reservation gives the body `GATED_BODY_DEADLINE_MS` to arrive. The same
+  audit made these rules, each with a test (`test/spend-hardening.test.js`,
+  `test/beta-grant.test.js` I–K):
+  - A call that **times out** is charged its worst case (`lib/llm.js` post →
+    `timedOutUsage`): the vendor runs and bills a dropped request to its end.
+  - Every failure **after the vendor answered** carries its cost
+    (`tagFailure`, `lib/errors.js` `billedFailure`), all failed shards included.
+  - **Web searches are capped per answer** (`max_tool_calls`: 3 on
+    `/api/sources`, 4 on `/api/find-sources`), and find-sources has a
+    global hourly window (`SPEND.appWebSearchesPerHour`).
+  - **Effort is switched off for a model only after the same call succeeds
+    without it** (`isEffortError` reads the vendor's `param`).
+  - **A deployed server never runs unmetered**: with `release.json` present
+    (or `TRACELY_HOSTED=1`) and Supabase unset, spending routes answer 503
+    and `PUT /api/prefs` 403 (`refuseUnmetered`).
+  - **Stripe:** a plan event older than the newest one applied for that
+    customer is `stale` (`billing_event_order`), and only a confirmed,
+    non-anonymous email claims an unclaimed purchase.
 - **The public try-out page (`/try`) is a third product with its own fence**
   (`lib/demo.js`, `demoGate`; DEPLOY.md "The try-out page"): `DEMO_ROUTES`
   (`/api/demo/check|sources|review|status`) sit in NO other set — not
