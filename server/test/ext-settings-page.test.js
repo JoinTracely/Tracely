@@ -74,6 +74,7 @@ async function openPage(answer, { hash = "", stored = {} } = {}) {
   const navs = SECTIONS.map((s) => el(`nav-${s}`, { dataset: { nav: s } }));
   const sides = ["left", "right"].map((s) => el(`side-${s}`, { dataset: { side: s } }));
   const stricts = ["clear", "balanced", "thorough"].map((s) => el(`strict-${s}`, { dataset: { strict: s } }));
+  const looks = ["light", "dark", "system"].map((s) => el(`look-${s}`, { dataset: { appearance: s } }));
   const storageListeners = [];
   const sets = [];
   const copied = [];
@@ -99,7 +100,7 @@ async function openPage(answer, { hash = "", stored = {} } = {}) {
     document: {
       getElementById: (id) => el(id),
       createElement: () => ({ textContent: "", className: "", append() {}, appendChild() {}, addEventListener() {} }),
-      querySelectorAll: (sel) => (sel === "[data-panel]" ? panels : sel === "[data-nav]" ? navs : sel === "[data-side]" ? sides : sel === "[data-strict]" ? stricts : []),
+      querySelectorAll: (sel) => (sel === "[data-panel]" ? panels : sel === "[data-nav]" ? navs : sel === "[data-side]" ? sides : sel === "[data-strict]" ? stricts : sel === "[data-appearance]" ? looks : []),
     },
   }), { filename: "options.js" });
   await tick(); await tick();
@@ -110,6 +111,7 @@ async function openPage(answer, { hash = "", stored = {} } = {}) {
     $: el, shown, active, location, removed: removed.filter((k) => k === "settingsOpenAt"), removedAll: removed, nav: (s) => navs[SECTIONS.indexOf(s)],
     storageChange: (c) => storageListeners.forEach((fn) => fn(c, "local")), sets, stored, copied, change, side: (s) => sides.find((b) => b.dataset.side === s),
     strict: (s) => stricts.find((b) => b.dataset.strict === s),
+    look: (s) => looks.find((b) => b.dataset.appearance === s),
     pick: (id, value) => { const e = el(id); e.value = value; for (const fn of e.listeners.change ?? []) fn({ target: e }); },
     submit: (id) => { for (const fn of el(id).listeners.submit ?? []) fn({ preventDefault() {} }); },
     fire: (id, type, target) => { for (const fn of el(id).listeners[type] ?? []) fn({ target, preventDefault() {} }); },
@@ -271,6 +273,19 @@ test("General: the button's corner, the panel on open, and the shortcut Chrome h
   // The defaults are the widget's own.
   const prefsOf = (src, re) => JSON.parse(src.match(re)[1].replace(/(\w+):/g, '"$1":').replace(/,\s*\}$/, "}"));
   assert.deepEqual(prefsOf(OPTIONS, /const PREF_DEFAULTS = (\{[^}]*\});/), prefsOf(SRC, /const PREF_DEFAULTS = (\{[^}]*\});/), "options.js and content.js: one set of names and defaults");
+});
+
+test("General → Appearance: Light, Dark or Match system, saved where the widget reads it", async () => {
+  const p = await openPage({ signedIn: false, plan: "free" });
+  assert.equal(p.look("light").getAttribute("aria-pressed"), "true", "light by default");
+  p.look("dark").click();
+  assert.equal(lastPrefs(p).appearance, "dark");
+  assert.equal(p.look("dark").getAttribute("aria-pressed"), "true");
+  assert.equal(p.look("light").getAttribute("aria-pressed"), "false");
+  p.look("system").click();
+  assert.equal(lastPrefs(p).appearance, "system");
+  const odd = await openPage({ signedIn: false, plan: "free" }, { stored: { prefs: { appearance: "sepia" } } });
+  assert.equal(odd.look("light").getAttribute("aria-pressed"), "true", "a value this page doesn't know shows as Light");
 });
 
 test("Checking: each kind, how strict, the usual kind of writing, the evidence search, the preview and Review all — saved where the widget reads them", async () => {
