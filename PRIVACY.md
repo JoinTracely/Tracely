@@ -200,5 +200,5 @@ data from children under 13.
 
 Changes to this policy are published here, with the effective date at the
 top. Questions and requests: open an issue at
-https://github.com/Tracely-app/Tracely/issues, or email the address on
+https://github.com/JoinTracely/Tracely/issues, or email the address on
 jointracely.com.

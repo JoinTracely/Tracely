@@ -9,7 +9,7 @@ agents read every session.
 ## Setup, per surface
 
 ```bash
-git clone https://github.com/Tracely-app/Tracely.git && cd Tracely
+git clone https://github.com/JoinTracely/Tracely.git && cd Tracely
 cd server && npm test            # the server AND extension tests; zero dependencies, ~10 s
 npm install && npm run typecheck && npm test     # the desktop app (Node 24)
 ```

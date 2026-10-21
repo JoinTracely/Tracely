@@ -16,7 +16,7 @@ deploys or ships, in the same PR or right after. Dates are UTC.
 ## Not yet deployed / pending
 
 - **Try Tracely** is live at `https://api.jointracely.com/try` (demo pool $2/day, 10 checks / 2 source searches / 2 reviews per visitor; settings `TRACELY_DEMO_*` and `TRACELY_PUBLIC_ORIGIN` in the server `.env`). The website's `/try/` page that frames it, plus the hero/nav/download entry points, is Tracely-app/Tracely-Website#16 — waiting on Merrick to merge and deploy. **Every server deploy must copy `extension/content.js`** (runbook) or `/try` stops working.
-- Website (Tracely-app/Tracely-Website) waits on the Vercel reconnect above: #8 is the site rebuild with the pricing copy; #9 the `/privacy` and `/terms` pages (supersedes #7, held for legal review); #10 puts Explain in depth back on Pro once extension 2.21.24 is live.
+- Website (JoinTracely/Tracely-Website) waits on the Vercel reconnect above: #8 is the site rebuild with the pricing copy; #9 the `/privacy` and `/terms` pages (supersedes #7, held for legal review); #10 puts Explain in depth back on Pro once extension 2.21.24 is live.
 - Repo PR #297 (launch legal documents) — drafts for legal review, do not merge until read by a lawyer.
 
 ## How to update this file

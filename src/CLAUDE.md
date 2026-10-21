@@ -193,15 +193,20 @@ so publishing without bumping produces a release nobody is ever shown.
 `GH_TOKEN` lives in `.env.release` and must be in the environment for
 `--publish` to work; electron-builder does not read that file on its own.
 
-- **The token must reach `Tracely-app/Tracely`, and it is checked only at the
+- **The token must reach `JoinTracely/Tracely`, and it is checked only at the
   very end.** v0.3.99's first `ship` built for twenty minutes and then got
   `403 Resource not accessible by personal access token` creating the
   release — a token that predated the org transfer. Nothing was published,
   but the version bump had already merged.
-- **A fine-grained token cannot name Tracely-app unless you are an org
-  MEMBER.** A repo collaborator with push access (Merrick, 2026-10-03) never
-  sees it as a resource owner. Use a classic token with `repo`, or the gh
-  CLI's own login.
+- **The feed moved to `JoinTracely` (Merrick's org) on 2026-10-20.** Under
+  `Tracely-app` Merrick was a collaborator, not an org member, so a
+  fine-grained token could never name it (the v0.3.99 and v0.3.101 403s).
+  In his own org the gh CLI's login works, and so does a fine-grained
+  token with Contents: write on `JoinTracely/Tracely`.
+- **v0.3.102 is the bridge.** Every build before it reads updates from
+  `Tracely-app/Tracely`, so that one release is published to both repos
+  (`electron-builder.yml` `publish`, and the bridge steps in
+  `docs/RELEASING.md`). Later releases go to `JoinTracely` only.
 - **To publish without re-bumping, run `release:win` directly** — `ship`
   would bump again. Set what `ship` would have set (PowerShell):
   `$env:TRACELY_ENV = "production"; $env:GH_TOKEN = (gh auth token)`, then

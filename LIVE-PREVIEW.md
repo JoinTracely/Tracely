@@ -16,7 +16,7 @@ not seconds.
    you don't have them.
 2. Clone the repo and get on the branch:
    ```powershell
-   git clone https://github.com/Tracely-app/Tracely.git
+   git clone https://github.com/JoinTracely/Tracely.git
    cd Tracely
    git checkout live-preview
    npm install

@@ -66,6 +66,32 @@ Preview builds publish themselves from every push to `main`
 (`.github/workflows/preview.yml`). A merged desktop PR carries
 `needs:merrick-ship` until `STATUS.md` names a stable that includes it.
 
+### The v0.3.102 bridge (once, 2026-10)
+
+The repo moved from `Tracely-app` to `JoinTracely` (Merrick's org) on
+2026-10-20. Every build up to v0.3.101 reads updates from
+`Tracely-app/Tracely`; v0.3.102 and later read `JoinTracely/Tracely`
+(`electron-builder.yml` `publish`). So v0.3.102 alone goes to both repos:
+
+1. `JoinTracely/Tracely` is public (installs read Releases without signing
+   in), allows auto-merge (`ship` merges with `--auto`), and requires `check`
+   on `main`.
+2. `/ship` as usual. It publishes v0.3.102 to `JoinTracely/Tracely`.
+3. From this PC, while Merrick still has write access to the old repo, copy
+   the same three files (the `.exe`, its `.blockmap` and `latest.yml`) into a
+   normal, non-prerelease release there:
+   `gh release download v0.3.102 -R JoinTracely/Tracely -D bridge`, then
+   `gh release create v0.3.102 -R Tracely-app/Tracely --title v0.3.102 --notes "Tracely v0.3.102" bridge/*`.
+   electron-updater reads `latest.yml` from the newest release of the repo the
+   install was built against, then fetches the `.exe` named in it from that
+   release.
+4. Check that an installed v0.3.101 offers the update.
+
+Production installs ask before updating, so some take weeks: the old repo
+should be archived, not deleted, for at least a month. An install that never
+updates past v0.3.101 keeps reading the old repo, and needs a manual reinstall
+once that repo is gone.
+
 ## Health
 
 `server/scripts/healthcheck.sh [BASE_URL] [--mock] [--commit <sha>]` runs the

@@ -236,8 +236,15 @@ mac:
   # Boolean on purpose. The object form (notarize: {teamId}) is deprecated in
   # electron-builder 25 and removed in 26; the Team ID comes from APPLE_TEAM_ID.
   notarize: true
+# The update feed every install reads, baked into app-update.yml at build time.
+# It moved from Tracely-app (an org Merrick was not an owner of) to JoinTracely
+# on 2026-10-20. Builds before v0.3.102 still read Tracely-app/Tracely, so
+# v0.3.102, the bridge, is published to BOTH repos: old installs find it there,
+# and from it on they read JoinTracely. Windows builds are unsigned (publisherName
+# above), so whoever controls this repo controls what every install runs next.
+# Never point it at a repo the owner does not control.
 publish:
   provider: github
-  owner: Tracely-app
+  owner: JoinTracely
   repo: Tracely
   releaseType: release
