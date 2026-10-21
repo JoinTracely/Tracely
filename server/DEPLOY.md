@@ -147,7 +147,7 @@ on this shared box, or read `.env`.
    - the host key line.
 3. If a firewall limits port 22 to known addresses, GitHub's runners need to
    reach it. Their addresses change; check before the first run.
-4. GitHub → Tracely-app/Tracely → Settings → Environments → **New environment
+4. GitHub → JoinTracely/Tracely → Settings → Environments → **New environment
    `production`**:
    - **Deployment branches: `main` only.** This is what keeps the key away
      from a workflow on any other branch.
