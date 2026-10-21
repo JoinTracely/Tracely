@@ -28,6 +28,7 @@ downtime, because a volume cannot be attached to two copies at once.
    by the owner and never pasted into a chat:
    ```
    RAILWAY_DOCKERFILE_PATH=server/Dockerfile
+   PORT=8080
    TRACELY_PUBLIC_HOSTS=api.jointracely.com,healthcheck.railway.app,${{RAILWAY_PUBLIC_DOMAIN}}
    TRACELY_TRUSTED_PROXY_HOPS=1
    TRACELY_EXTENSION_ID=dffmoeebkkghhgcklkbmaibfhgiegmdm
@@ -51,8 +52,10 @@ downtime, because a volume cannot be attached to two copies at once.
 5. **Settings → Build → Watch Paths:** `/server/**` and
    `/extension/content.js`. A desktop-only merge then does not restart the
    server.
-6. **Settings → Networking → Generate Domain** (the `*.up.railway.app`
-   address used for testing). Then check it:
+6. **Settings → Networking → Generate Domain**, target port **8080** (the
+   `PORT` above). This is the `*.up.railway.app` address used for testing.
+   Generate it before the first deploy: `${{RAILWAY_PUBLIC_DOMAIN}}` is
+   resolved when a deploy starts. Then deploy, and check it with
    `server/scripts/healthcheck.sh https://<that domain>`.
 
 ### The switch
