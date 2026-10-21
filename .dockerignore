@@ -1,0 +1,11 @@
+# The only Docker build is the server's (server/Dockerfile), with the repo root
+# as its context. Send it exactly what it copies, and never a secret: a local
+# `docker build` would otherwise carry a working tree's .env into the image.
+*
+!server/
+!extension/content.js
+server/.env
+server/.env.*
+server/data/
+server/node_modules/
+server/release.json
