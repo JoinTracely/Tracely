@@ -58,25 +58,54 @@ async function boot(extra) {
 }
 
 // node:http, not fetch: fetch will not let a caller choose the Host header.
-function get(port, pathname, headers = {}) {
+function send(port, method, pathname, headers = {}, body = null) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: "127.0.0.1", port, path: pathname, method: "GET", headers: { Host: `127.0.0.1:${port}`, ...headers } }, (res) => {
-      let body = "";
-      res.on("data", (c) => { body += c; });
-      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body }));
+    const req = http.request({ host: "127.0.0.1", port, path: pathname, method, headers: { Host: `127.0.0.1:${port}`, ...(body ? { "Content-Type": "application/json" } : {}), ...headers } }, (res) => {
+      let text = "";
+      res.on("data", (c) => { text += c; });
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: text }));
     });
     req.on("error", reject);
-    req.end();
+    req.end(body ? JSON.stringify(body) : undefined);
   });
 }
+const get = (port, pathname, headers = {}) => send(port, "GET", pathname, headers);
 
 let pub;
 let plain;
+let hosted;
 test.before(async () => {
   pub = await boot({ TRACELY_PUBLIC_HOSTS: "api.example.test, healthcheck.railway.app", TRACELY_EXTENSION_ID: `${OLD_ID}, ${NEW_ID}` });
   plain = await boot({});
+  hosted = await boot({ TRACELY_HOSTED: "1" });
 });
-test.after(() => { pub?.child.kill(); plain?.child.kill(); });
+test.after(() => { pub?.child.kill(); plain?.child.kill(); hosted?.child.kill(); });
+
+// The local web app's own routes (LOCAL_ONLY_ROUTE in server.js).
+const LOCAL_ONLY = [
+  ["GET", "/api/documents"], ["POST", "/api/documents", { title: "x" }], ["GET", "/api/documents/latest"], ["GET", "/api/documents/abc"],
+  ["PUT", "/api/documents/abc", { title: "y" }], ["DELETE", "/api/documents/abc"],
+  ["GET", "/api/library"], ["POST", "/api/library", { title: "z" }], ["DELETE", "/api/library/abc"],
+  ["GET", "/api/analyses?documentId=abc"], ["POST", "/api/analyses", {}],
+  ["POST", "/api/clear-history", {}], ["GET", "/api/stats"], ["GET", "/api/evidence/for-claim?claimText=x"],
+  ["GET", "/api/watch/state"], ["POST", "/api/watch/toggle", { enabled: false }],
+];
+
+test("a deployed server refuses the local web app's storage routes, which ask no one who is calling", async () => {
+  for (const [method, p, body] of LOCAL_ONLY) {
+    const r = await send(hosted.port, method, p, {}, body);
+    assert.equal(r.status, 403, `${method} ${p} answered ${r.status} on a hosted server`);
+    assert.match(r.body, /only available on a local Tracely server/);
+  }
+  assert.equal((await get(hosted.port, "/api/status")).status, 200, "status still answers, for the health check");
+  assert.equal((await get(hosted.port, "/api/prefs")).status, 200, "the prefs read is unchanged (its PUT was already refused)");
+});
+
+test("a laptop server keeps them", async () => {
+  assert.equal((await get(plain.port, "/api/documents")).status, 200);
+  assert.equal((await get(plain.port, "/api/stats")).status, 200);
+  assert.equal((await get(plain.port, "/api/library")).status, 200);
+});
 
 test("a listed public host is answered, its health check's host included, case-insensitively", async () => {
   for (const host of ["api.example.test", "API.Example.Test", "healthcheck.railway.app"]) {
