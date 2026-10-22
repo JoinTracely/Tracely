@@ -312,6 +312,18 @@ function routeAllowedForOrigin(origin, pathname) {
   return EXTENSION_API.has(pathname);
 }
 
+/* The local web app's own routes (public/app, a single-user server on the
+ * writer's machine): its stored documents, library and analyses, clearing
+ * that history, its stats, a stored claim's evidence, and Screen Watch's
+ * state and switch. None asks who is calling, which is right on a laptop and
+ * wrong on a public server: anyone could store, read or wipe what they hold.
+ * The live server answered GET /api/documents with 200 on 2026-10-22 (it held
+ * nothing). No shipped client calls them, because the extension and the
+ * desktop app keep their own, so a deployed server (HOSTED) refuses them
+ * (test/hosting.test.js). /api/prefs is not here: a hosted server already
+ * refuses its PUT, and its GET is the shared row's harmless read. */
+const LOCAL_ONLY_ROUTE = /^\/api\/(documents|library|analyses)(\/|$)|^\/api\/(evidence\/for-claim|clear-history|stats|watch\/state|watch\/toggle)$/;
+
 function hostAllowed(host) {
   return host === `localhost:${PORT}` || host === `127.0.0.1:${PORT}` || host === `[::1]:${PORT}`
     || PUBLIC_HOSTS.has(host.toLowerCase());
@@ -1273,6 +1285,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "OPTIONS") {
       res.writeHead(204, cors);
       res.end();
+      return;
+    }
+
+    if (HOSTED && LOCAL_ONLY_ROUTE.test(url.pathname)) {
+      json(res, 403, { error: { kind: "forbidden", message: "This route is only available on a local Tracely server." } }, cors);
       return;
     }
 

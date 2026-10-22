@@ -200,6 +200,13 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   - **A deployed server never runs unmetered**: with `release.json` present
     (or `TRACELY_HOSTED=1`) and Supabase unset, spending routes answer 503
     and `PUT /api/prefs` 403 (`refuseUnmetered`).
+  - **A deployed server refuses the local web app's storage** (2026-10-22,
+    `LOCAL_ONLY_ROUTE`). That covers `/api/documents`, `/api/library` and
+    `/api/analyses` (and the ids under them), `/api/clear-history`,
+    `/api/stats`, `/api/evidence/for-claim` and Screen Watch's state and
+    switch. They ask no one who is calling, which is fine on a laptop. The
+    live server answered `GET /api/documents` with 200 (it held nothing). No
+    shipped client calls them. Test: `test/hosting.test.js`.
   - **Stripe:** a plan event older than the newest one applied for that
     customer is `stale` (`billing_event_order`), and only a confirmed,
     non-anonymous email claims an unclaimed purchase.
