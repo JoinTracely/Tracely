@@ -16,6 +16,19 @@
 import { MICRO_CENTS_PER_USD } from "./spend.js";
 
 const tally = new Map(); // route -> { calls, input, cached, cacheWrite, output, searches, microCents }
+/* How often the server's own result cache (appCall's `cache`, lib/db.js
+ * request_cache: the desktop's routes) answered instead of a model, per cache
+ * kind (2026-10-22). A hit costs nothing and never reaches tallyCall, so
+ * without this the routes that cache looked dearer per answer than they are,
+ * and whether the extension's source search should cache was unanswerable. */
+const cacheTally = new Map(); // kind -> { hits, misses }
+
+export function tallyCache(kind, hit) {
+  const key = typeof kind === "string" && /^[a-z-]+$/.test(kind) ? kind : "other";
+  const t = cacheTally.get(key) ?? { hits: 0, misses: 0 };
+  if (hit) t.hits += 1; else t.misses += 1;
+  cacheTally.set(key, t);
+}
 const n = (v) => (Number.isFinite(v) && v > 0 ? v : 0);
 
 export function tallyCall(route, { usage, webSearchCalls = 0, cost = 0 } = {}) {
@@ -38,6 +51,11 @@ export function takeUsageLines() {
     const usd = (t.microCents / MICRO_CENTS_PER_USD).toFixed(4);
     return `[tracely] usage route=${route} calls=${t.calls} in=${t.input} cached=${t.cached} (${pct(t.cached)}) write=${t.cacheWrite} (${pct(t.cacheWrite)}) out=${t.output} searches=${t.searches} cost=$${usd}`;
   });
+  for (const [kind, t] of [...cacheTally].sort(([a], [b]) => a.localeCompare(b))) {
+    const asked = t.hits + t.misses;
+    lines.push(`[tracely] cache kind=${kind} hits=${t.hits} of ${asked} (${Math.round((100 * t.hits) / asked)}%)`);
+  }
   tally.clear();
+  cacheTally.clear();
   return lines;
 }
