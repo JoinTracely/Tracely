@@ -244,6 +244,12 @@ if (taxCode) {
   process.exit(4);
 }
 const priceIds = {};
+/* Each plan's product id, found or created in this run. The portal step needs
+ * it, and reading it back from existingProducts/existingPrices (both listed
+ * BEFORE anything is created) left it undefined on a first --apply: Stripe
+ * refused the portal with "Missing required param ...[products][0][product]"
+ * (2026-10-22, the first sandbox run). */
+const productIds = {};
 const existingProducts = await mustRead("products", { limit: 100, active: "true" }, "Products");
 const existingPrices = await mustRead("prices", { limit: 100, active: "true" }, "Prices");
 
@@ -270,6 +276,7 @@ for (const p of PLANS) {
     }
   }
 
+  if (product) productIds[p.env] = product.id;
   if (price) {
     priceIds[p.env] = price.id;
     console.log(`  ${g("exists")}  ${p.product} $${(p.cents / 100).toFixed(2)}/mo — ${price.id}`);
@@ -284,6 +291,7 @@ for (const p of PLANS) {
     const body = { name: p.product, description: p.blurb };
     if (taxCode) body.tax_code = taxCode.id;
     product = await post("products", body);
+    productIds[p.env] = product.id;
     console.log(`  ${g("created")}  product ${p.product} — ${product.id}${taxCode ? ` (tax code ${taxCode.id})` : ""}`);
   }
   // tax_behavior deliberately omitted: the account default governs, and that
@@ -373,7 +381,8 @@ try {
   note("manual", "Billing > Customer portal: turn ON 'Cancel subscriptions' with mode 'at end of billing period', turn ON 'Switch plan' listing both prices, leave 'Manage downgrades' OFF, then 'Ways to get started' > Activate link and put the https://billing.stripe.com/p/login/... URL into PORTAL_URL in extension/options.js.");
 }
 const active = (cfgs?.data ?? []).find((c) => c.active && c.is_default);
-const wantSwitch = Object.values(priceIds).filter(Boolean);
+// Plans with both ids known, in PLANS order, so each product keeps its price.
+const switchable = PLANS.filter((p) => priceIds[p.env] && productIds[p.env]);
 if (!portalReadable) {
   // nothing to do here; the manual note above carries it
 } else if (active?.features?.subscription_cancel?.enabled) {
@@ -404,14 +413,13 @@ if (!portalReadable) {
   // deliberately: enabling it attaches a subscription schedule, and a customer
   // with a scheduled update CANNOT cancel until it resolves — which would
   // silently revoke the cancel path the pricing page promises.
-  if (wantSwitch.length === 2) {
+  if (switchable.length === 2) {
     body["features[subscription_update][enabled]"] = "true";
     body["features[subscription_update][default_allowed_updates][0]"] = "price";
     body["features[subscription_update][proration_behavior]"] = "create_prorations";
-    wantSwitch.forEach((pid, i) => {
-      body[`features[subscription_update][products][${i}][product]`] = (existingPrices.data ?? []).find((x) => x.id === pid)?.product
-        ?? (existingProducts.data ?? []).find((x) => x.name === PLANS[i].product)?.id;
-      body[`features[subscription_update][products][${i}][prices][0]`] = pid;
+    switchable.forEach((p, i) => {
+      body[`features[subscription_update][products][${i}][product]`] = productIds[p.env];
+      body[`features[subscription_update][products][${i}][prices][0]`] = priceIds[p.env];
     });
   }
   const cfg = await post("billing_portal/configurations", body);
