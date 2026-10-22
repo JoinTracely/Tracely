@@ -226,6 +226,41 @@ test("findSources completes the fields from Crossref and the page, drops a dead 
   }
 });
 
+test("findSources drops every dead link even when that leaves nothing, and keeps a link that only timed out or refused", async () => {
+  const realFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "sk-test";
+  const src = (title, url) => ({ title, url, publisher: "Example", snippet: "s", stance: "context", kind: "other", authors: [], groupAuthor: "", year: null, date: "", container: "", editors: [], doi: "" });
+  const answer = (sources) => new Response(JSON.stringify({ status: "completed", model: "gpt-5.6-luna", usage: { input_tokens: 10, output_tokens: 10 },
+    output: [{ type: "web_search_call", status: "completed", action: { type: "search" } }, { type: "message", content: [{ type: "output_text", text: JSON.stringify({ sources }), annotations: [] }] }] }), { status: 200 });
+  try {
+    // Both results answer 404 or 410: neither is offered (it used to keep them).
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("api.openai.com")) return answer([src("Gone", "https://example.org/gone"), src("Also gone", "https://example.org/also-gone")]);
+      if (u.includes("example.org/gone")) return new Response("", { status: 404 });
+      if (u.includes("example.org/also-gone")) return new Response("", { status: 410 });
+      throw new Error("unexpected " + u);
+    };
+    const r = await findSources({ claim: "Later school start times improve adolescent sleep.", model: "gpt-5.6-luna" });
+    assert.deepEqual(r.sources, [], "a dead link is not a citation, even as the only one");
+    assert.equal(r.dropped, 2);
+
+    // A page that refuses (403) or never answers is not dead: it stays, unread, never backing.
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("api.openai.com")) return answer([src("Walled", "https://example.org/walled")]);
+      if (u.includes("example.org/walled")) return new Response("", { status: 403 });
+      throw new Error("unexpected " + u);
+    };
+    const kept = await findSources({ claim: "Later school start times improve adolescent sleep.", model: "gpt-5.6-luna" });
+    assert.equal(kept.sources.length, 1, "a 403 is a wall, not a dead link");
+    assert.equal(kept.dropped, 0);
+    assert.notEqual(kept.sources[0].stance, "supports", "and unread is never backing");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("findSources with enrich:false touches no other host", async () => {
   const realFetch = globalThis.fetch;
   process.env.OPENAI_API_KEY = "sk-test";

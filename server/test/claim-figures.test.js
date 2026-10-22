@@ -68,3 +68,22 @@ test("the judged cases: the receipt must show the sentence's figure", () => {
 test("a sentence with no figure is never held to one", () => {
   assert.deepEqual(figuresShown("Some researchers argue the effect is small.", "Others point out that the effect sizes are too small"), { ok: true, missing: [] });
 });
+
+test("a figure's unit binds it: another unit never shows it, the same quantity in another unit does, and no unit stays lenient (Codex review C5)", () => {
+  const shown = (c, q) => figuresShown(c, q).ok;
+  assert.equal(shown("The object moved 10 meters.", "The object moved 10 feet."), false, "10 meters is not 10 feet");
+  assert.equal(shown("Teens need 8 hours of sleep.", "teens need 8 minutes of sleep"), false);
+  assert.equal(shown("Water boils at 100 degrees Celsius.", "water boils at 100 degrees Fahrenheit"), false, "temperature scales do not convert");
+  assert.equal(shown("The trip took 2 hours.", "The trip took 120 minutes."), true, "the same time, converted");
+  assert.equal(shown("The road is 1 kilometer long.", "the road runs 1,000 meters"), true, "the same length, converted");
+  assert.equal(shown("The object moved 10 meters.", "it moved 10"), true, "a quote that leaves the unit to its sentence is not refused");
+  assert.equal(shown("Water boils at 100 degrees Celsius.", "it boils at 100 degrees"), true);
+});
+
+test("percentage points are their own measure: never shown by a plain percent, either way (Codex review C5)", () => {
+  const shown = (c, q) => figuresShown(c, q).ok;
+  assert.equal(shown("Unemployment rose 10 percentage points.", "Unemployment rose 10 percent."), false);
+  assert.equal(shown("Unemployment rose 10 percent.", "Unemployment rose 10 percentage points."), false);
+  assert.equal(shown("Unemployment rose 10 percentage points.", "unemployment rose by 10 percentage points"), true);
+  assert.equal(shown("Turnout rose roughly 4 percentage points.", "turnout climbed about 4.5 percentage points"), true, "the percent tolerance carries over");
+});

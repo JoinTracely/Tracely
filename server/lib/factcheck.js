@@ -606,8 +606,14 @@ async function completeSources(list, { now = new Date(), fetchImpl = globalThis.
   } finally {
     clearTimeout(timer);
   }
+  // Every page that answered 404 or 410 goes, even when that leaves nothing,
+  // as a retracted or mismatched work does above. A dead link used to stay
+  // when EVERY result was dead (Codex review C1, 2026-10-22): never backing,
+  // since nothing unread is, but still listed as a link to open. An empty
+  // list is the existing "nothing found" answer. A timeout or a 403 is not
+  // dead: those stay, unread.
   let dropped = mixed.length;
-  if (dead.size && dead.size < list.length) {
+  if (dead.size) {
     for (let i = list.length - 1; i >= 0; i--) if (dead.has(list[i])) { list.splice(i, 1); dropped++; }
   }
   return { enriched: enriched + filled, dropped, retracted: retracted.length };
