@@ -179,38 +179,38 @@ test("recordSpend returns the call's cost, and 0 when unenforced", () => {
 
 // ── fair use ───────────────────────────────────────────────────────────
 
-test("fair use: Pro over $2 in a day acts as Free until midnight, then Pro again", () => {
+test("fair use: Pro over $1.50 in a day acts as Free until midnight, then Pro again", () => {
   const { ent, id } = account("pro");
-  E.recordAccountSpend(id, 1.99 * USD, SEP(15));
+  E.recordAccountSpend(id, 1.49 * USD, SEP(15));
   assert.equal(E.fairUseState(ent, id, SEP(15)).state, "ok");
   assert.equal(E.effectivePlan(ent, id, SEP(15)), "pro");
   E.recordAccountSpend(id, 0.01 * USD, SEP(15));
   const s = E.fairUseState(ent, id, SEP(15));
-  assert.deepEqual([s.state, s.resetsOn, s.limits.day, s.limits.month], ["day", P.nextUsageDay(SEP(15)), 2 * USD, 8 * USD]);
+  assert.deepEqual([s.state, s.resetsOn, s.limits.day, s.limits.month], ["day", P.nextUsageDay(SEP(15)), 1.5 * USD, 5 * USD]);
   assert.equal(E.effectivePlan(ent, id, SEP(15)), "free");
   assert.equal(ent.plan, "pro", "the plan itself is untouched");
   assert.equal(E.effectivePlan(ent, id, SEP(16)), "pro");
 });
 
-test("fair use: Pro over $8 in a month acts as Free until the 1st", () => {
+test("fair use: Pro over $5 in a month acts as Free until the 1st", () => {
   const { ent, id } = account("pro");
-  for (let d = 2; d <= 5; d++) E.recordAccountSpend(id, 1.9 * USD, SEP(d)); // $7.60, never $2 in a day
+  for (let d = 2; d <= 5; d++) E.recordAccountSpend(id, 1.2 * USD, SEP(d)); // $4.80, never $1.50 in a day
   assert.equal(E.effectivePlan(ent, id, SEP(6)), "pro");
-  E.recordAccountSpend(id, 0.4 * USD, SEP(6));
+  E.recordAccountSpend(id, 0.2 * USD, SEP(6));
   const s = E.fairUseState(ent, id, SEP(7));
   assert.deepEqual([s.state, s.resetsOn], ["month", "2026-10-01"]);
   assert.equal(E.effectivePlan(ent, id, SEP(30)), "free");
   assert.equal(E.effectivePlan(ent, id, OCT(1) + 3_600_000), "pro");
 });
 
-test("fair use: Student's limits are $1 a day and $4 a month", () => {
+test("fair use: Student's limits are $0.75 a day and $2.50 a month", () => {
   const { ent, id } = account("student");
-  E.recordAccountSpend(id, 1 * USD, SEP(15));
+  E.recordAccountSpend(id, 0.75 * USD, SEP(15));
   assert.equal(E.fairUseState(ent, id, SEP(15)).state, "day");
   assert.equal(E.effectivePlan(ent, id, SEP(15)), "free");
-  for (let d = 16; d <= 18; d++) E.recordAccountSpend(id, 0.99 * USD, SEP(d));
-  assert.equal(E.effectivePlan(ent, id, SEP(19)), "student"); // $3.97
-  E.recordAccountSpend(id, 0.03 * USD, SEP(19));
+  for (let d = 16; d <= 18; d++) E.recordAccountSpend(id, 0.58 * USD, SEP(d));
+  assert.equal(E.effectivePlan(ent, id, SEP(19)), "student"); // $2.49
+  E.recordAccountSpend(id, 0.01 * USD, SEP(19));
   assert.equal(E.fairUseState(ent, id, SEP(19)).state, "month");
 });
 

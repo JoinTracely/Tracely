@@ -53,8 +53,8 @@ routes, where they only choose Thorough over Standard.
 | Plan | Checks | AI actions (desktop) | Source searches (extension + desktop, one count) | Thorough model | Fair-use limit |
 | --- | --- | --- | --- | --- | --- |
 | `free` | 400 a day | 150 a day | 5 a day, 40 a month | — | — (it has quotas) |
-| `student` | no daily limit | no daily limit | 20 a day, 100 a month | — | $1 a day, $4 a month |
-| `pro` | no daily limit | no daily limit | 40 a day, 250 a month | $1.50/month allowance | $2 a day, $8 a month (includes the allowance) |
+| `student` | no daily limit | no daily limit | 20 a day, 100 a month | — | $0.75 a day, $2.50 a month |
+| `pro` | no daily limit | no daily limit | 40 a day, 250 a month | $1.50/month allowance | $1.50 a day, $5 a month (includes the allowance; lowered from $2/$8 on 2026-10-22) |
 
 - **Thorough** (`gpt-6-astra` at low) runs only on Pro's "Explain in depth"
   (`/api/check` with `deep: true`, one sentence, 2,000-token ceiling) and on
