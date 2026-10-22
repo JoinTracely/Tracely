@@ -1,16 +1,21 @@
 # Tracely Privacy Policy
 
-*Effective: 3 October 2026. This update adds the site icons shown beside
-sources, loaded from Google's favicon service (see **Google** under "Who else
-processes your data"), and says when text is sent for checking: a few seconds
-after a sentence is written or changed, rather than on a ten-second timer. The 24 September 2026 version replaced the
+*Effective: 22 October 2026. This update says that the desktop app's results
+are kept on our server for 1 to 7 days and then deleted (see "What we keep,
+and for how long"); before it they were kept with no end date, which this
+policy did not say. The 3 October 2026 version added the site icons shown
+beside sources, loaded from Google's favicon service (see **Google** under
+"Who else processes your data"), and said when text is sent for checking: a
+few seconds after a sentence is written or changed, rather than on a
+ten-second timer. The 24 September 2026 version replaced the
 August 2026 policy, which described an earlier version of the extension that
 ran on your own API key with no server and no accounts. That is not how
 Tracely works now, so this policy starts from what the current version
 actually does.*
 
 This policy covers the **Tracely Chrome extension**, the **Tracely
-service** it talks to (`api.jointracely.com`) and the **try-out page**
+service** it talks to (`api.jointracely.com`), what that service keeps of the
+**Tracely desktop app**'s requests, and the **try-out page**
 (`api.jointracely.com/try`, shown on jointracely.com/try), all operated by
 Tracely ("we"). It is written from the code: each statement below names the part of
 the product it describes.
@@ -18,7 +23,10 @@ the product it describes.
 ## The short version
 
 - The text you are checking is sent to our server and on to OpenAI to be
-  judged. **We do not store your text.** It is processed and discarded.
+  judged. **We do not store your text.** It is processed and discarded. The
+  one exception is the desktop app's results, which can include sentences from
+  your draft: they are kept for 1 to 7 days, so the same request isn't paid for
+  twice, and then deleted automatically.
 - Google Docs is checked only after you turn Tracely on for Docs, once. Other
   sites are checked only after you turn Tracely on for that site. Until then
   nothing is read from the page.
@@ -110,14 +118,15 @@ On our server:
 | Account link: Stripe customer id, plan, the email used to pay | account id | while the account exists |
 | Payment events from Stripe: event id, type, plan, outcome | account id | while the account exists; the payer's name, address and phone are removed before the event is stored |
 | An unclaimed purchase (plan and payer email) awaiting its account | payer email | until claimed, or until the subscription ends |
+| The desktop app's results (the claims found in a draft, its structure, critiques, suggested rewrites, grades and source lists), which can include sentences from the draft, so that the same request is not paid for twice | a hash of the request | 1 day (claims found, structure) or 7 days (the rest), then deleted automatically within the hour |
 | Standard web-server access logs (IP address, time, path) | — | rotated by the web server on its normal schedule (see below) |
 
 Our application logs record which route was called and whether it succeeded —
 never your text, email, tokens or IP address.
 
-We keep **no copy of the text you check, no documents, and no record of which
-pages or documents you use Tracely on.** Our server never receives a page's
-URL, only the text.
+Apart from the desktop app's results in the table above, we keep **no copy of
+the text you check, no documents, and no record of which pages or documents
+you use Tracely on.** Our server never receives a page's URL, only the text.
 
 On your device, in the extension's storage: your settings, the sites you have
 switched on, whether Docs is on, the install id, your session token and plan

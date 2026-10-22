@@ -159,6 +159,30 @@ export function cacheGet(kind, key, { maxAgeMs = null, version = 1 } = {}) {
   if (maxAgeMs != null && Date.now() - row.created_at > maxAgeMs) return null;
   try { return JSON.parse(row.value_json); } catch { return null; }
 }
+/* How long each kind of cached answer is KEPT (2026-10-22). Rows used to stay
+ * forever: maxAgeMs was only checked on read, so an answer no route would
+ * ever serve again stayed on disk. Some of these answers carry the writer's
+ * own sentences (the claims found in a draft, a rewrite, a grade's quotes), and
+ * PRIVACY.md now promises they go after this long. Each kind's retention is the
+ * longest maxAgeMs any route reads it with (test/request-cache-retention.test.js
+ * holds every route to it), and requestCachePurge runs hourly (server.js). */
+const DAY_MS = 24 * 3600_000;
+export const REQUEST_CACHE_RETENTION_MS = { detect: DAY_MS, structure: DAY_MS };
+export const REQUEST_CACHE_DEFAULT_RETENTION_MS = 7 * DAY_MS;
+export function requestCacheRetentionMs(kind) {
+  return REQUEST_CACHE_RETENTION_MS[kind] ?? REQUEST_CACHE_DEFAULT_RETENTION_MS;
+}
+/** Deletes every cached answer older than its kind's retention; returns how many. */
+export function requestCachePurge(now = Date.now()) {
+  const kinds = Object.keys(REQUEST_CACHE_RETENTION_MS);
+  let n = 0;
+  for (const kind of kinds) {
+    n += db.prepare("DELETE FROM request_cache WHERE kind = ? AND created_at < ?").run(kind, now - REQUEST_CACHE_RETENTION_MS[kind]).changes;
+  }
+  n += db.prepare(`DELETE FROM request_cache WHERE (kind IS NULL OR kind NOT IN (${kinds.map(() => "?").join(", ")})) AND created_at < ?`)
+    .run(...kinds, now - REQUEST_CACHE_DEFAULT_RETENTION_MS).changes;
+  return Number(n);
+}
 export function cacheSet(kind, key, value, { version = 1 } = {}) {
   db.prepare(
     "INSERT INTO request_cache (key, kind, value_json, created_at, version) VALUES (?, ?, ?, ?, ?) " +
