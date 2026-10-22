@@ -22,7 +22,23 @@ Read the root `CLAUDE.md` first. `README.md` here says what ships.
 - **`docs-hook.js`** is the in-page engine for Google Docs (reads, marks,
   Fix in doc, Cite in doc). `ANNOTATION_REQUESTER` is our Web Store id and is
   pinned by the manifest `key`, so every build — unpacked betas included — has
-  the same id. Chrome runs one at a time: remove the old entry before loading.
+  the same id (`test/spend.test.js` derives it from the key and holds the hook
+  to it). Chrome runs one at a time: remove the old entry before loading.
+
+## Two listings (2026-10-21)
+
+The Web Store listing Tracely publishes to is on **Merrick's** developer
+account, id **`pkaihmliboboiafoodfaoflflcpipcnd`**, from 2.21.69. The old
+listing, `dffmoeebkkghhgcklkbmaibfhgiegmdm`, is on Sam's account and stays at
+2.21.1: its installs keep working, because they call the same server, but
+they never update. So:
+- **The server admits both ids** (`TRACELY_EXTENSION_ID`, comma-separated),
+  and Supabase's redirect allowlist has both `https://<id>.chromiumapp.org/`
+  addresses. Never drop the old id while its installs are in use.
+- **A beta loaded unpacked now has the new id.** Testers remove the old entry
+  before loading it.
+- **The listing's text** (summary, description, single purpose, permission
+  reasons, data use) is in `STORE-LISTING.md` beside this file.
 
 ## Tests, version, release
 

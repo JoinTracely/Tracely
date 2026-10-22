@@ -12202,7 +12202,7 @@
               </div>
             </div>
           </div>
-          <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);text-decoration:none">Privacy</a></div>
+          <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/JoinTracely/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);text-decoration:none">Privacy</a></div>
         </div>` : ""}
         <div class="pill quiet" id="pill" title="${esc(DOCS_CONSENT_TEXT)}">${PILL_MARK}Turn on Tracely for Docs</div>`;
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });

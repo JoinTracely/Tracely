@@ -63,8 +63,10 @@
      telemetry. That is a misattribution we'd be authoring, quite apart from the
      Chrome Web Store's "impersonates another entity" line.
 
-     This is Tracely's own Web Store id (dffmoeebkkghhgcklkbmaibfhgiegmdm,
-     pinned by the manifest "key" for unpacked builds too) — an id is what the
+     This is Tracely's own Web Store id (pkaihmliboboiafoodfaoflflcpipcnd since
+     2.21.69, the listing on Merrick's developer account; it was the old
+     listing's dffmoeebkkghhgcklkbmaibfhgiegmdm), pinned by the manifest "key"
+     for unpacked builds too (test/spend.test.js) — an id is what the
      field means, and it is what every comparable extension (LanguageTool,
      QuillBot, Wordtune, Ginger, ProWritingAid) sends. It was the bare word
      "tracely" until the id was fixed. test/models.test.js fails the build if
@@ -73,7 +75,7 @@
      If Google restores a real allowlist, this simply stops rendering and
      content.js falls through to the canvas-ledger path — see svgLocate() → null
      in content.js. That fallback is why this was never worth impersonating for. */
-  const ANNOTATION_REQUESTER = "dffmoeebkkghhgcklkbmaibfhgiegmdm";
+  const ANNOTATION_REQUESTER = "pkaihmliboboiafoodfaoflflcpipcnd";
   try {
     window._docs_annotate_canvas_by_ext = ANNOTATION_REQUESTER;
   } catch { /* never interfere */ }

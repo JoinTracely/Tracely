@@ -429,12 +429,12 @@ test("docs-hook: the Docs flag is still set first, and the engine installs lazil
     .split("\n").map((l) => l.trim()).filter(Boolean);
   assert.deepEqual(code, [
     "(() => {", "\"use strict\";", "if (window.__tracelyDocsHook) return;", "window.__tracelyDocsHook = true;",
-    "const ANNOTATION_REQUESTER = \"dffmoeebkkghhgcklkbmaibfhgiegmdm\";", "try {",
+    "const ANNOTATION_REQUESTER = \"pkaihmliboboiafoodfaoflflcpipcnd\";", "try {",
   ], "nothing runs before the flag but the re-entry guard");
   const docs = new FakeDocs("Hello there, world.");
   const h = loadHook({ docs });
   assert.equal(h.loadError, null);
-  assert.equal(h.ctx._docs_annotate_canvas_by_ext, "dffmoeebkkghhgcklkbmaibfhgiegmdm", "our own store id — never a third party's");
+  assert.equal(h.ctx._docs_annotate_canvas_by_ext, "pkaihmliboboiafoodfaoflflcpipcnd", "our own store id — never a third party's");
   assert.equal(docs.requesters.length, 0, "installing the engine must not touch Docs' API");
 });
 
@@ -442,7 +442,7 @@ test("docs-hook: a canvas-hook failure cannot take the edit engine down", async 
   const docs = new FakeDocs("Hello there, world.");
   const h = loadHook({ docs, canvas: false });
   assert.ok(h.loadError, "no CanvasRenderingContext2D → the canvas hook throws (as it would in a broken page)");
-  assert.equal(h.ctx._docs_annotate_canvas_by_ext, "dffmoeebkkghhgcklkbmaibfhgiegmdm", "our own store id — never a third party's");
+  assert.equal(h.ctx._docs_annotate_canvas_by_ext, "pkaihmliboboiafoodfaoflflcpipcnd", "our own store id — never a third party's");
   const r = await h.call("ping");
   assert.equal(r.ok, true);
   assert.equal(r.editable, true);
@@ -458,7 +458,7 @@ test("protocol: ping reports the text API and whether the editor looks editable"
   assert.equal(r.type, "tracely-docs-edit-result");
   assert.equal(r.op, "ping");
   assert.deepEqual([r.ok, r.api, r.editor, r.editable, r.mode, r.viewOnly], [true, true, true, true, "editing", false]);
-  assert.deepEqual(docs.requesters, ["dffmoeebkkghhgcklkbmaibfhgiegmdm"], "the requester is our own store id — never a third party's");
+  assert.deepEqual(docs.requesters, ["pkaihmliboboiafoodfaoflflcpipcnd"], "the requester is our own store id — never a third party's");
   assert.ok(h.posted.every((p) => p.targetOrigin === ORIGIN), "replies go to this origin only, never '*'");
 
   const view = loadHook({ docs: new FakeDocs("Hello there.", { mode: "View only" }) });

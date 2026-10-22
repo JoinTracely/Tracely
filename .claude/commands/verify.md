@@ -22,8 +22,10 @@ server. No token is needed.
 ## 2. The runbook checks (server/DEPLOY.md, "Verify after every deploy")
 
 - `GET /api/entitlement` with a bad bearer token → `200` and `plan: "free"`.
-- `OPTIONS /api/check` with `Origin: chrome-extension://dffmoeebkkghhgcklkbmaibfhgiegmdm`
-  → `204`; the same from any other extension id → `403`.
+- `OPTIONS /api/check` with `Origin: chrome-extension://pkaihmliboboiafoodfaoflflcpipcnd`
+  (the listing on Merrick's account) and `chrome-extension://dffmoeebkkghhgcklkbmaibfhgiegmdm`
+  (the old listing, still installed) → `204` each; the same from any other
+  extension id → `403`.
 - `PUT /api/prefs` → `403` (a hosted server refuses it).
 
 ## 3. Every desktop endpoint is live

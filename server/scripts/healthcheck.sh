@@ -27,7 +27,9 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-EXT="chrome-extension://dffmoeebkkghhgcklkbmaibfhgiegmdm"
+# Our two Web Store listings: Merrick's (since 2.21.69) and the old one, whose
+# installs still call the server. TRACELY_EXTENSION_ID must admit both.
+EXT_IDS="pkaihmliboboiafoodfaoflflcpipcnd dffmoeebkkghhgcklkbmaibfhgiegmdm"
 fail() { printf 'FAIL  %s\n' "$1"; exit 1; }
 ok() { printf 'ok    %s\n' "$1"; }
 
@@ -54,8 +56,10 @@ plan=$(node -e 'try { console.log(JSON.parse(require("fs").readFileSync(process.
 [ "$code" = "200" ] && [ "$plan" = "free" ] || fail "bad token → $code plan=$plan (want 200 free)"
 ok "/api/entitlement: a bad token is served as free"
 
-code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -X OPTIONS -H "Origin: $EXT" -H "Access-Control-Request-Method: POST" "$BASE/api/check")
-[ "$code" = "204" ] || fail "OPTIONS /api/check from our extension → $code (want 204)"
+for id in $EXT_IDS; do
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -X OPTIONS -H "Origin: chrome-extension://$id" -H "Access-Control-Request-Method: POST" "$BASE/api/check")
+  [ "$code" = "204" ] || fail "OPTIONS /api/check from our extension $id → $code (want 204: TRACELY_EXTENSION_ID must list it)"
+done
 code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -X OPTIONS -H "Origin: chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" -H "Access-Control-Request-Method: POST" "$BASE/api/check")
 [ "$code" = "403" ] || fail "OPTIONS /api/check from a foreign extension → $code (want 403)"
 ok "/api/check CORS: ours 204, foreign 403"
