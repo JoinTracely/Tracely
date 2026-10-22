@@ -163,6 +163,43 @@ test("near misses on a word boundary are not found: 73 is not 73.5 or 735, and n
   assert.ok(matchQuote("Rates were 73.5% in Wales", P));
 });
 
+test("a quote in a script without spaces is a receipt by its length, not a word count (Codex review A1)", () => {
+  const ZH = [{ from: "abstract", text: "研究发现，青少年设施支出下降了73%，并不会影响学习成绩。睡眠不足会降低注意力。" }];
+  // An exact clause: one "word" by spaces, so it was never a receipt.
+  const m = matchQuote("“青少年设施支出下降了73%”", ZH);
+  assert.equal(m?.text, "青少年设施支出下降了73%");
+  assert.equal(m?.from, "abstract");
+  assert.ok(matchQuote("睡眠不足会降低注意力。", ZH), "a whole sentence, with its full stop");
+  assert.equal(
+    matchQuote("「研究发现，青少年设施支出下降了73%，并不会影响学习成绩。」", ZH)?.text,
+    "研究发现，青少年设施支出下降了73%，并不会影响学习成绩",
+    "its full stop and corner quotes are wrapping: no space follows \"。\", and the next sentence starts beside it"
+  );
+  assert.equal(matchQuote("下降了73%", ZH), null, "too short, like \"fell by 73%\"");
+  assert.equal(matchQuote("睡眠不足", ZH), null, "a phrase, not a statement");
+  assert.equal(matchQuote("会影响学习成绩", ZH), null, "inside \"并不会…\": the negation beside it is a letter, so no boundary");
+  assert.equal(matchQuote("青少年设施支出", ZH), null, "ends mid-clause, beside a letter");
+  assert.equal(matchQuote("青少年设施支出上升了73%", ZH), null, "one character changed");
+
+  const JA = [{ from: "page", text: "調査の結果、喫煙はがんの主な原因である。" }];
+  assert.ok(matchQuote("喫煙はがんの主な原因である", JA));
+
+  const KO = [{ from: "page", text: "연구에 따르면 흡연은 암을 유발한다." }];
+  assert.ok(matchQuote("흡연은 암을 유발한다", KO), "three Korean words: no longer too short");
+  assert.equal(matchQuote("암을 유발한다", KO), null, "two words");
+
+  const TH = [{ from: "page", text: "งานวิจัยพบว่า การสูบบุหรี่ทำให้เกิดมะเร็งปอด" }];
+  assert.ok(matchQuote("การสูบบุหรี่ทำให้เกิดมะเร็งปอด", TH));
+  assert.equal(matchQuote("งานวิจัยพบว่า", TH), null, "Thai counts letters one for one: 13 is too short");
+});
+
+test("the English rule did not move: three words and fifteen characters", () => {
+  const P = [{ from: "page", text: "Spending on youth facilities fell by 73% in ten years." }];
+  assert.equal(matchQuote("fell by 73%", P), null);
+  assert.equal(matchQuote("youth facilities", P), null, "two words");
+  assert.ok(matchQuote("facilities fell by 73%", P));
+});
+
 // ── what is read ──────────────────────────────────────────────────────────
 
 test("every source is read — the abstract for a DOI, else the page; a wall, an error or a PDF leaves it unread", async () => {
