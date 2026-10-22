@@ -1364,6 +1364,44 @@
     return citeEntryEnd({ doc, ref, marker }, style, locator, webPage);
   }
 
+  /* The `context` a source search sends: the sentence's own neighbourhood,
+     never the document's head (Codex review C2, 2026-10-22). Every search
+     sent the first 6,000 characters, so a claim past them was searched
+     without its paragraph: the server's claimWindow can only cut the claim's
+     surroundings out of what it is sent. Now:
+     - a text that fits in `max` is sent whole, as before;
+     - longer, the window is centred on the sentence's own place (`start`,
+       `end`, so a repeated sentence keeps its occurrence); a side cut short by
+       the document's edge gives what is left to the other;
+     - both ends move in to a paragraph or sentence end within 300
+       characters, so it never starts or stops mid-word;
+     - never more than `max`, the amount PRIVACY.md names ("up to 6,000
+       characters of surrounding text").
+     A segment with no place known sends the head, as before. */
+  const SEARCH_CONTEXT_MAX = 6000;
+  function searchContext(text, seg, max = SEARCH_CONTEXT_MAX) {
+    const t = String(text ?? "");
+    if (t.length <= max) return t;
+    const start = Number(seg?.start), end = Number(seg?.end);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > t.length) return t.slice(0, max);
+    const room = Math.max(0, max - (end - start));
+    let before = Math.floor(room / 2), after = room - before;
+    if (start - before < 0) { after += before - start; before = start; }
+    if (end + after > t.length) { before = Math.min(start, before + (end + after - t.length)); after = t.length - end; }
+    let lo = start - before, hi = end + after;
+    if (lo > 0) {
+      const m = t.slice(lo, Math.min(start, lo + 300)).match(/\n|[.!?]["”’)\]]*\s+/);
+      if (m) lo += m.index + m[0].length;
+    }
+    if (hi < t.length) {
+      const tail = t.slice(Math.max(end, hi - 300), hi);
+      let at = -1;
+      for (const m of tail.matchAll(/\n|[.!?]["”’)\]]*(?=\s)/g)) at = m.index + m[0].length;
+      if (at >= 0) hi = Math.max(end, hi - 300) + at;
+    }
+    return t.slice(lo, hi);
+  }
+
   /* ── sentence boundaries: the server's rules, inlined ─────────────────
      This used to split at every ".", "!" or "?" — so "the U.S. Army" became
      the sentence "…the U." and "Harry S. Truman" ended at "S.", and the
@@ -8985,9 +9023,9 @@
         const data = await searchSources({
           claim: seg.text,
           correction: f?.revision || undefined,
-          context: docText.slice(0, 6000),
-          // The model and no effort — the server ignores a client's effort
-          // on searches and runs the vendor's default.
+          context: searchContext(docText, seg), // the sentence's neighbourhood (C2)
+          // The model only: the server ignores a client's effort on searches
+          // and runs them at low (shared/plan.js ROUTE_EFFORT).
           model: CHECK_MODEL,
         }, onEvent);
         const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);
@@ -9882,7 +9920,10 @@
       renderPopSources(hash);
       try {
         // The point, not the study: a source can back what it is said to have found, never the study itself.
-        const data = await searchSources({ claim, context: docText.slice(0, 6000), model: CHECK_MODEL }, () => {});
+        // 3,000 here: the claim is the study's point, reworded, so the server
+        // cannot find it in the context and keeps the context's first 3,000
+        // characters (claimWindow's head); this window is that whole head.
+        const data = await searchSources({ claim, context: searchContext(docText, seg, 3000), model: CHECK_MODEL }, () => {});
         const pick = pickReplacement(backingSources(data.sources, "questionable").list, settings.citationStyle || "mla");
         replaceMap.set(hash, pick ?? { none: true });
       } catch (err) {
@@ -13302,7 +13343,7 @@
       replaceMap.set(hash, { loading: true });
       render();
       try {
-        const data = await searchSources({ claim, context: fieldText.slice(0, 6000), model: CHECK_MODEL }, () => {});
+        const data = await searchSources({ claim, context: searchContext(fieldText, seg, 3000), model: CHECK_MODEL }, () => {}); // 3,000: see Docs mode's findReplacement
         replaceMap.set(hash, pickReplacement(backingSources(data.sources, "questionable").list, settings.citationStyle || "mla") ?? { none: true });
       } catch (err) {
         replaceMap.set(hash, { failed: searchFailureNote(err) });
@@ -13338,9 +13379,9 @@
         const data = await api("/api/sources", {
           claim: seg.text,
           correction: f?.revision || undefined,
-          context: fieldText.slice(0, 6000),
-          // The model and no effort — the server ignores a client's effort
-          // on searches and runs the vendor's default.
+          context: searchContext(fieldText, seg), // the sentence's neighbourhood (C2)
+          // The model only: the server ignores a client's effort on searches
+          // and runs them at low (shared/plan.js ROUTE_EFFORT).
           model: CHECK_MODEL,
         });
         const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);

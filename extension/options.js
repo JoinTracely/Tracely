@@ -737,6 +737,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.70", "Find a source now reads the paragraph your sentence is in, even far into a long essay, so it searches for what that sentence means in context."],
   ["2.21.69", "Tracely now comes from its own Chrome Web Store listing. Nothing changes in how it checks, and the privacy policy link points to Tracely's new home on GitHub."],
   ["2.21.68", "A sentence Tracely finds wrong or confusing no longer offers to cite sources that contradict it: they show what the record says, and the fix is the way forward."],
   ["2.21.67", "A sentence Tracely can't check right now waits half a minute before it is tried again, instead of being sent over and over."],
