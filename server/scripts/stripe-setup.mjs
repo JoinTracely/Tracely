@@ -29,6 +29,18 @@ if (!KEY) {
 }
 const LIVE = KEY.startsWith("sk_live") || KEY.startsWith("rk_live");
 const MODE = LIVE ? "LIVE" : "TEST";
+/* Stripe's API, or a stand-in on this machine for test/stripe-setup-run.test.js.
+ * Only a loopback address is accepted, so a real key is never sent anywhere
+ * but Stripe. */
+const API_BASE = (() => {
+  const b = (process.env.STRIPE_API_BASE ?? "").trim();
+  if (!b) return "https://api.stripe.com/v1";
+  if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(b)) {
+    console.error("STRIPE_API_BASE is for the tests only, and must be http://127.0.0.1:<port>.");
+    process.exit(1);
+  }
+  return b;
+})();
 
 /* The pricing page is the source of truth: Student is advertised at $4.99 with
  * $10 shown struck through, so $4.99 is the charge and $10 must never become a
@@ -62,7 +74,7 @@ function safeMsg(e) {
 }
 
 async function api(method, path, params) {
-  const qs = new URL(`https://api.stripe.com/v1/${path}`);
+  const qs = new URL(`${API_BASE}/${path}`);
   const opts = { method, headers: { Authorization: `Bearer ${KEY}` } };
 
   /* A GET carries its parameters in the QUERY STRING and must not have a body.
@@ -323,7 +335,12 @@ for (const p of PLANS) {
     }
     continue;
   }
-  const found = (existingLinks.data ?? []).find((l) => l.active && (l.line_items?.data ?? []).some((li) => li.price?.id === pid));
+  /* Matched on the metadata this script puts on every link it makes. Listing
+   * payment links leaves line_items out unless expanded, so matching on them
+   * found nothing and every --apply made another pair (2026-10-22, the second
+   * sandbox run). line_items is still read when a response carries it. */
+  const found = (existingLinks.data ?? []).find((l) => l.active &&
+    (l.metadata?.price_id === pid || (l.line_items?.data ?? []).some((li) => li.price?.id === pid)));
   if (found) { linkUrls[p.key] = found.url; console.log(`  ${g("exists")}  ${p.product} — ${found.url}`); continue; }
   if (!APPLY) { note("plan", `create a Payment Link for ${p.product}`); console.log(`  ${y("would create")}  ${p.product}`); continue; }
   const link = await post("payment_links", {
@@ -441,11 +458,11 @@ if (!APPLY) {
 } else {
   const envLines = Object.entries(priceIds).filter(([, v]) => v);
   if (envLines.length || whsec) {
-    console.log("Paste into the server's .env:\n");
+    console.log(`Set as the server's variables${LIVE ? "" : " (TEST values: for a test server only, never the live one)"}:\n`);
     for (const [k, v] of envLines) console.log(`  ${k}=${v}`);
     if (whsec) console.log(`  STRIPE_WEBHOOK_SECRET=${whsec}`);
-    console.log("\n  ssh root@45.56.92.67   then edit /srv/tracely/app/.env");
-    console.log("  It is re-read on every request, so nothing needs restarting.");
+    console.log("\n  Railway: the service > Variables (server/DEPLOY.md, \"Railway\"). A variable");
+    console.log("  change redeploys by itself. (On the old Linode: its .env, re-read per request.)");
     if (whsec) console.log(r("\n  The signing secret above is shown ONCE. Save it now."));
   }
   if (linkUrls.student || linkUrls.pro) {
