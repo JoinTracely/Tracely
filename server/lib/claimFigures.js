@@ -61,6 +61,48 @@ function normalize(text) {
 
 const blank = (s) => " ".repeat(s.length);
 
+/* A count's unit, when one follows it ("10 meters", "8 hours", "100 degrees
+ * Celsius"), as [pattern, dimension, factor to that dimension's base]. Two
+ * figures that both name a unit match only in the same dimension, compared
+ * after converting ("2 hours" is "120 minutes"); "10 meters" never matches
+ * "10 feet" (Codex review C5, 2026-10-22: both passed). A figure with no unit
+ * on either side matches as before, because a quote often leaves the unit to
+ * its sentence. Ambiguous short forms ("m" is also million, "g", "in", "ton")
+ * are left out on purpose: no unit is safer than a wrong one. Temperature
+ * scales do not convert (an offset, not a factor). */
+const UNITS = [
+  [/^(?:kilomet(?:er|re)s?|km)\b/, "length", 1000],
+  [/^(?:centimet(?:er|re)s?|cm)\b/, "length", 0.01],
+  [/^(?:millimet(?:er|re)s?|mm)\b/, "length", 0.001],
+  [/^met(?:er|re)s?\b/, "length", 1],
+  [/^(?:feet|foot|ft)\b/, "length", 0.3048],
+  [/^inch(?:es)?\b/, "length", 0.0254],
+  [/^(?:yards?|yd)\b/, "length", 0.9144],
+  [/^miles?\b/, "length", 1609.344],
+  [/^(?:kilograms?|kg)\b/, "mass", 1],
+  [/^(?:milligrams?|mg)\b/, "mass", 1e-6],
+  [/^grams?\b/, "mass", 0.001],
+  [/^(?:pounds?|lbs?)\b/, "mass", 0.45359237],
+  [/^(?:ounces?|oz)\b/, "mass", 0.028349523125],
+  [/^(?:seconds?|secs?)\b/, "time", 1],
+  [/^(?:minutes?|mins?)\b/, "time", 60],
+  [/^(?:hours?|hrs?)\b/, "time", 3600],
+  [/^days?\b/, "time", 86400],
+  [/^weeks?\b/, "time", 604800],
+  [/^months?\b/, "time", 2629800],
+  [/^years?\b/, "time", 31557600],
+  [/^(?:millilit(?:er|re)s?|ml)\b/, "volume", 0.001],
+  [/^lit(?:er|re)s?\b/, "volume", 1],
+  [/^gallons?\b/, "volume", 3.785411784],
+  [/^(?:degrees?\s+(?:celsius|centigrade)|°\s*c\b)/, "temp-c", 1],
+  [/^(?:degrees?\s+fahrenheit|°\s*f\b)/, "temp-f", 1],
+];
+function unitAfter(text) {
+  const s = String(text ?? "").replace(/^\s+/, "");
+  for (const [re, dim, factor] of UNITS) if (re.test(s)) return { dim, factor };
+  return null;
+}
+
 /* Everything that looks like a number and is not a figure, blanked out (the
  * same length, so what remains keeps its place). */
 function maskNonFigures(t) {
@@ -101,7 +143,8 @@ export function figuresOf(text) {
       const before = t.slice(Math.max(0, at - 30), at);
       const f = make(m);
       if (f && Number.isFinite(f.value)) {
-        out.push({ ...f, cmp: MORE.test(before) ? "gt" : LESS.test(before) ? "lt" : null, approx: APPROX.test(before) });
+        const unit = f.kind === "count" ? unitAfter(t.slice(at + m[0].length, at + m[0].length + 30)) : null;
+        out.push({ ...f, ...(unit ? { unit } : {}), cmp: MORE.test(before) ? "gt" : LESS.test(before) ? "lt" : null, approx: APPROX.test(before) });
       }
       return blank(m[0]);
     });
@@ -110,9 +153,11 @@ export function figuresOf(text) {
   // "1 in 4", "one out of every three"
   take(new RegExp(`\\b(\\d+(?:\\.\\d+)?|${NUMBER_WORD})\\s+(?:in|out of(?: every)?)\\s+(\\d+(?:\\.\\d+)?|${NUMBER_WORD})\\b`, "g"),
     (m) => { const a = num(m[1]); const b = num(m[2]); return a != null && b ? { value: (100 * a) / b, kind: "percent", digits: /\d/.test(m[1]) } : null; });
-  // 13%, 13 percent, 13 percentage points; seventy percent
+  // 13%, 13 percent; seventy percent. 13 percentage points is a CHANGE in a
+  // percentage, another measure: its own kind, so "rose 10 percentage points"
+  // is never shown by "rose 10 percent" (Codex review C5, 2026-10-22).
   take(new RegExp(`\\b(\\d+(?:\\.\\d+)?|${NUMBER_WORD})\\s*(?:%|percent\\b|per cent\\b|percentage points?\\b)`, "g"),
-    (m) => ({ value: num(m[1]), kind: "percent", digits: /\d/.test(m[1]) }));
+    (m) => ({ value: num(m[1]), kind: /point/.test(m[0]) ? "points" : "percent", digits: /\d/.test(m[1]) }));
   // $2,400; $1.5 million; 100 dollars; a hundred dollars
   take(/\$\s?(\d+(?:\.\d+)?)(?:\s*(thousand|million|billion|trillion|k|m|mn|bn|b)\b)?/g,
     (m) => ({ value: Number(m[1]) * (SCALE[m[2]] ?? 1), kind: "money", digits: true }));
@@ -137,10 +182,16 @@ export function figuresOf(text) {
 /* Does a figure from the quote show the sentence's figure? */
 export function figureMatches(c, q) {
   if (c.kind !== q.kind) return false;
+  // Both name a unit: only the same dimension, compared once converted.
+  if (c.unit && q.unit) {
+    if (c.unit.dim !== q.unit.dim) return false;
+    c = { ...c, value: c.value * c.unit.factor };
+    q = { ...q, value: q.value * q.unit.factor };
+  }
   if (c.cmp === "gt") return q.value >= c.value * 0.98;
   if (c.cmp === "lt") return q.value <= c.value * 1.02;
   const loose = c.approx || q.approx || q.cmp != null;
-  const tol = c.kind === "percent"
+  const tol = c.kind === "percent" || c.kind === "points"
     ? (loose ? Math.max(5, 0.15 * c.value) : Math.max(0.6, 0.02 * c.value))
     : (loose ? 0.15 : 0.02) * Math.abs(c.value);
   return Math.abs(c.value - q.value) <= tol;
