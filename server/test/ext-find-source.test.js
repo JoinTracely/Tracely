@@ -29,6 +29,7 @@ const STUBS = `
   const needsSignIn = () => false; // signed in (content.js tier): ext-search-gates.test.js has the signed-out half
   const segments = [{ hash: "a", text: "Sleep improves memory." }, { hash: "b", text: "Teenagers sleep less than adults." }];
   const docText = "doc", fieldText = "field", CHECK_MODEL = "m";
+  const searchContext = (text) => text; // shared helpers; ext-search-context.test.js tests the real one
   const render = () => {}, renderPopSources = () => {}, persistCaches = () => {}, noteSourcesReady = () => {};
   const backingSources = (s) => ({ list: s ?? [], unbacked: 0, unread: [], partial: null });
   const calls = [];

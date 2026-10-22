@@ -151,6 +151,22 @@ closes the card without cancelling, and a "Sources ready" note says when it
 is done. Nothing in the live view says a source backs anything — that is the
 receipts' answer. Tests: `server/test/ext-live-search.test.js`.
 
+**What a search sends as context** (2.21.70; Codex review C2): the
+sentence's own neighbourhood, never the document's head (`searchContext`,
+shared helpers).
+- A text of at most 6,000 characters is sent whole, as before.
+- Longer, the window is centred on the sentence's own place (`seg.start`/
+  `seg.end`, so a repeated sentence keeps its occurrence), and moves in to
+  sentence or paragraph ends.
+- Every search sent the first 6,000 characters until 2.21.70, so a claim
+  past them was searched without its paragraph.
+- Replace with evidence sends 3,000 characters, because its reworded claim
+  is not in the text and the server then keeps only the context's first
+  3,000 (`claimWindow`).
+
+Tests: `server/test/ext-search-context.test.js`, which includes the server's
+`claimWindow` on the claim the review lost at offset 8,001.
+
 ## Citations in context
 
 Since 2.21.30: a citation that names only a person ("(Shiraishi)") asks

@@ -97,6 +97,7 @@ const stubs = (signedOut) => `
   const needsSignIn = () => ${signedOut}, SIGNIN_COPY = { body: "Sign in first." };
   const segments = [{ hash: "a", text: "Sleep improves memory." }];
   const docText = "doc", fieldText = "field", CHECK_MODEL = "m";
+  const searchContext = (text) => text; // shared helpers; ext-search-context.test.js tests the real one
   const render = () => {}, renderPopSources = () => {}, persistCaches = () => {}, noteSourcesReady = () => {};
   const backingSources = (s) => ({ list: s ?? [], unbacked: 0, unread: [], partial: null });
   const calls = [];
