@@ -163,11 +163,26 @@ loadEnvFile();
 // This server fronts the user's OpenAI API key, so hostile web pages must
 // not be able to drive it: origins are allowlisted (docs.google.com for the
 // extension widget, plus our own pages), the Host header is pinned to kill
-// DNS-rebinding, and we listen on loopback only.
+// DNS-rebinding, and we listen on loopback only — unless the operator says
+// otherwise (TRACELY_BIND, TRACELY_PUBLIC_HOSTS, below).
 const SELF_ORIGINS = new Set([`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`]);
-const PINNED_EXTENSION = process.env.TRACELY_EXTENSION_ID
-  ? `chrome-extension://${process.env.TRACELY_EXTENSION_ID}`
-  : null;
+/* TRACELY_EXTENSION_ID pins CORS to the extension's id, or to several,
+ * comma-separated: a new Web Store listing gets a new id while installs of the
+ * old one still call this server, so both have to be admitted at once. */
+const PINNED_EXTENSIONS = new Set((process.env.TRACELY_EXTENSION_ID ?? "").split(",")
+  .map((id) => id.trim()).filter(Boolean).map((id) => `chrome-extension://${id}`));
+/* The address the server listens on. Loopback, unless a host that proxies to
+ * it from outside the machine needs more: in a container (server/Dockerfile)
+ * the platform's proxy is another machine, so the image sets 0.0.0.0. */
+const BIND = process.env.TRACELY_BIND || "127.0.0.1";
+/* The Host headers a public deployment answers to, comma-separated, exact
+ * (e.g. "api.jointracely.com,healthcheck.railway.app"). Read once at boot.
+ * The Linode's Apache rewrites Host to 127.0.0.1:4477, so it needs none; a
+ * platform whose proxy keeps the caller's Host (Railway) must list its
+ * domains here, its health check's host included, or every request is a 403.
+ * The DNS-rebinding guard still holds: a host not on the list is refused. */
+const PUBLIC_HOSTS = new Set((process.env.TRACELY_PUBLIC_HOSTS ?? "").split(",")
+  .map((h) => h.trim().toLowerCase()).filter(Boolean));
 
 function originAllowed(origin) {
   if (!origin) return true; // curl / non-browser clients; Host check still applies
@@ -175,7 +190,7 @@ function originAllowed(origin) {
   // The try-out page's own origin (TRACELY_PUBLIC_ORIGIN): admitted here, and
   // held to the demo routes and static files by routeAllowedForOrigin.
   if (origin === demoPublicOrigin()) return true;
-  if (PINNED_EXTENSION) return origin === PINNED_EXTENSION;
+  if (PINNED_EXTENSIONS.size) return PINNED_EXTENSIONS.has(origin);
   return origin.startsWith("chrome-extension://");
 }
 
@@ -298,7 +313,8 @@ function routeAllowedForOrigin(origin, pathname) {
 }
 
 function hostAllowed(host) {
-  return host === `localhost:${PORT}` || host === `127.0.0.1:${PORT}` || host === `[::1]:${PORT}`;
+  return host === `localhost:${PORT}` || host === `127.0.0.1:${PORT}` || host === `[::1]:${PORT}`
+    || PUBLIC_HOSTS.has(host.toLowerCase());
 }
 
 function corsHeaders(req) {
@@ -2283,7 +2299,7 @@ const server = http.createServer(async (req, res) => {
 
 process.on("unhandledRejection", (err) => console.error("[tracely] unhandled rejection:", err));
 
-server.listen(PORT, "127.0.0.1", () => {
+server.listen(PORT, BIND, () => {
   /* Retention: usage counters are kept 13 months — long enough for a month
    * limit to be argued about, not forever. Swept at boot and once a day. */
   const sweepUsage = () => {

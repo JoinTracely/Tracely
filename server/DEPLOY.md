@@ -2,7 +2,101 @@
 
 The server (what is live, and since when, is in `STATUS.md`), and how to redeploy it.
 
-## Where it runs
+## Railway (the new home, from 2026-10)
+
+The server is moving off the Linode below, which is Sam's own box, to
+[Railway](https://railway.com) in Merrick's account. **Until `api.jointracely.com`
+points at Railway, the Linode is what is live.**
+
+Railway runs one container (`server/Dockerfile`, built with the repo root as its
+context) with one volume for the SQLite file. There is no SSH, no Apache, no
+certbot and no systemd. A merge that touches `server/` or `extension/content.js`
+deploys itself.
+
+**Why it fits.** The spend pools' reservations, the rate limiters and the
+caches live in memory, so there must be exactly **one** instance: never add
+replicas, and leave App Sleeping (serverless) off. A volume pins the service to
+one instance anyway. Each deploy restarts it, which is a few seconds of
+downtime, because a volume cannot be attached to two copies at once.
+
+### Setting it up (once)
+
+1. **Project:** railway.com → New Project → Deploy from GitHub repo → allow
+   Railway's GitHub app on the `JoinTracely` org → `JoinTracely/Tracely`.
+2. **Variables** (service → Variables → Raw Editor). Railway builds
+   `server/Dockerfile` because of the first line. Values in `<>` are typed in
+   by the owner and never pasted into a chat:
+   ```
+   RAILWAY_DOCKERFILE_PATH=server/Dockerfile
+   PORT=8080
+   TRACELY_PUBLIC_HOSTS=api.jointracely.com,healthcheck.railway.app,${{RAILWAY_PUBLIC_DOMAIN}}
+   TRACELY_TRUSTED_PROXY_HOPS=1
+   TRACELY_EXTENSION_ID=dffmoeebkkghhgcklkbmaibfhgiegmdm
+   SUPABASE_URL=https://sxifbtelrtbsgnnwnmdf.supabase.co
+   SUPABASE_ANON_KEY=<the anon key: Supabase → Project Settings → API>
+   TRACELY_PUBLIC_ORIGIN=https://api.jointracely.com
+   TRACELY_DEMO_SECRET=<64 hex characters: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
+   TRACELY_MOCK=1
+   ```
+   `TRACELY_MOCK=1` is the test phase: every route answers from the mock, so
+   nothing is spent. It comes out at the switch, when `OPENAI_API_KEY` goes
+   in. The daily budgets default to $10 a pool and the try-out's to $2
+   (`.env.example`). Set them here only to change them.
+3. **Volume:** service → right-click → Attach volume, mount path **`/data`**.
+   `scripts/container-start.sh` refuses to start without it, rather than
+   writing the database to a disk the next deploy wipes.
+4. **Settings → Deploy:**
+   - Healthcheck Path `/api/status`.
+   - Replicas 1.
+   - Serverless off.
+5. **Settings → Build → Watch Paths:** `/server/**` and
+   `/extension/content.js`. A desktop-only merge then does not restart the
+   server.
+6. **Settings → Networking → Generate Domain**, target port **8080** (the
+   `PORT` above). This is the `*.up.railway.app` address used for testing.
+   Generate it before the first deploy: `${{RAILWAY_PUBLIC_DOMAIN}}` is
+   resolved when a deploy starts. Then deploy, and check it with
+   `server/scripts/healthcheck.sh https://<that domain>`.
+
+### The switch
+
+1. Set `OPENAI_API_KEY` (a new key from the OpenAI account, never the old
+   one) and delete `TRACELY_MOCK`. With Stripe on its new account, also set
+   `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STUDENT`
+   and `STRIPE_PRICE_PRO` (BILLING.md). If testers need it, also set
+   `TRACELY_BETA_TOKENS`.
+2. Optionally, carry the Linode's database over: stop `tracely.service`,
+   copy `/srv/tracely/data/tracely.db*`, and put the files on the volume
+   before the first real deploy. Without it the server starts fresh: plans
+   live in Supabase, so only usage counts, the Stripe event order and
+   unclaimed purchases reset.
+3. Settings → Networking → Custom Domain → `api.jointracely.com`. Add the
+   CNAME (and the TXT record, if Railway asks for one) in Vercel DNS for
+   `jointracely.com`. Railway issues the certificate itself.
+4. `server/scripts/healthcheck.sh https://api.jointracely.com`, then
+   `healthcheck.sh --demo`.
+5. Then retire the Linode: revoke the old OpenAI key, delete
+   `.github/workflows/deploy-server.yml`, and have Sam remove `/srv/tracely`,
+   the `tracely` user and the Apache vhost.
+
+### Day to day
+
+- **Deploy:** merge to `main`. A Linode `.env` edit becomes a variable change
+  in Railway, which redeploys by itself.
+- **Logs:** the deployment's logs in Railway, including the hourly
+  `[tracely] usage` lines.
+- **Roll back:** Deployments → an earlier one → Redeploy. The model-tier rule
+  under "The model tiers" applies just as it does to an `app.bak-*`.
+
+**Not yet verified (2026-10):** how Railway's edge fills `X-Forwarded-For`.
+Railway staff describe it either as overwriting the header with the client's
+address or as appending it. `TRACELY_TRUSTED_PROXY_HOPS=1` reads the right entry
+either way. If an extra CDN hop is ever appended after it, address-based limits
+would key on the CDN's address. That shares a limit between callers, so it
+over-throttles; it never over-spends. Most callers are keyed by account or
+install id anyway (`lib/entitlement.js` `clientAddress`).
+
+## Where it runs (the Linode, until the switch)
 
 `45.56.92.67` (Linode `psychtest_server`, Ubuntu 22.04, 2 cores, 3.9GB).
 
@@ -185,7 +279,8 @@ boot:
 
 | variable | needs a restart |
 |---|---|
-| `TRACELY_EXTENSION_ID` | yes — `PINNED_EXTENSION` in server.js |
+| `TRACELY_EXTENSION_ID` | yes — `PINNED_EXTENSIONS` in server.js |
+| `TRACELY_PUBLIC_HOSTS`, `TRACELY_BIND` | yes |
 | `PORT` | yes |
 | `TRACELY_DATA_DIR` | yes, and it must be a real env var, not a .env line |
 | everything else | no |
