@@ -1,5 +1,7 @@
 import type { Author } from '@shared/types'
-import { realAuthors } from '@shared/placeholderAuthor'
+// Relative and with its extension, so this module loads under `node --test`
+// (authorUtils.test.ts); the alias does not resolve there.
+import { realAuthors } from '../../../shared/placeholderAuthor.ts'
 
 /**
  * An author list with nobody in it returns null, and every formatter moves the
@@ -19,7 +21,23 @@ import { realAuthors } from '@shared/placeholderAuthor'
  * that comes out is correct and usable, which is better than a skipped one.
  */
 
-const ET_AL_THRESHOLD = 3
+/**
+ * How many authors a reference-list entry names. These formatters write the
+ * reference list, never the in-text citation, and the lists are long:
+ *
+ * - APA 7 names up to 20, with "&" before the last; from 21 it names the first
+ *   19, then ". . .", then the last. A reference never says "et al."
+ * - Chicago 18 names up to six; from seven, the first three and "et al."
+ *
+ * Until 2026-10 both cut every list over three to "First, et al.", the rule of
+ * neither (Codex review C4, `docs/ideas/2026-10-codex-review.md`). The
+ * extension's formatter (`formatCitation` in extension/content.js) already used
+ * these numbers. MLA 9 does cut at three, so `formatAuthorsMLA` is unchanged.
+ */
+const APA_LIST_MAX = 20
+const APA_LONG_HEAD = 19
+const CHICAGO_LIST_MAX = 6
+const CHICAGO_LONG_HEAD = 3
 
 function initials(given: string | undefined): string {
   if (!given) return ''
@@ -47,8 +65,9 @@ export function formatAuthorsAPA(authorsIn: Author[]): string | null {
   if (authors.length === 0) return null
   if (authors.length === 1) return apaSingle(authors[0])
 
-  if (authors.length > ET_AL_THRESHOLD) {
-    return `${apaSingle(authors[0])}, et al.`
+  if (authors.length > APA_LIST_MAX) {
+    const head = authors.slice(0, APA_LONG_HEAD).map(apaSingle).join(', ')
+    return `${head}, . . . ${apaSingle(authors[authors.length - 1])}`
   }
 
   const formatted = authors.map(apaSingle)
@@ -86,7 +105,10 @@ export function formatAuthorsChicago(authorsIn: Author[]): string | null {
   const authors = realAuthors(authorsIn)
   if (authors.length === 0) return null
   if (authors.length === 1) return mlaFull(authors[0], true)
-  if (authors.length > ET_AL_THRESHOLD) return `${mlaFull(authors[0], true)}, et al.`
+  if (authors.length > CHICAGO_LIST_MAX) {
+    const head = authors.slice(0, CHICAGO_LONG_HEAD).map((a, i) => mlaFull(a, i === 0))
+    return `${head.join(', ')}, et al.`
+  }
 
   const formatted = authors.map((a, i) => mlaFull(a, i === 0))
   const last = formatted.pop()

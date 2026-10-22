@@ -21,6 +21,7 @@ import type { NormalizedSourceResult } from './types'
 import { MAX_EVIDENCE_RESULTS } from '@shared/evidenceLimits'
 import { findWebSources } from './webSources'
 import { takeWebSearch } from './webBudget'
+import { findDuplicateIndex, normalizedDoi } from './workIdentity'
 // "Would a marker accept this" — the second half of the fallback test below.
 import { credibilityOf } from '@shared/sourceCredibility'
 
@@ -56,37 +57,8 @@ function blendedRelevance(item: NormalizedSourceResult, textRelevance: number): 
   return 0.75 * textRelevance + 0.25 * rankRelevance
 }
 
-// Separators are DROPPED, not collapsed to a space, because providers disagree
-// about where the word boundaries in a title even are. Crossref returned the
-// same AEA trial registration twice — "Evidence fromA CHINESE EXPERIMENT" and
-// "Evidence from\nA CHINESE EXPERIMENT" — and mapping runs of non-alphanumerics
-// to a space preserves exactly that difference ("froma" vs "from a"), so the
-// pair survived into one claim's evidence list as two sources. Deleting the
-// separators makes both "...evidencefromachineseexperiment".
-function normalizeTitle(title: string): string {
-  return title.toLowerCase().replace(/[^a-z0-9]+/g, '')
-}
-
-function normalizedDoi(item: NormalizedSourceResult): string | null {
-  return item.doi ? item.doi.toLowerCase().trim() : null
-}
-
-function titleYearKey(item: NormalizedSourceResult): string {
-  return `${normalizeTitle(item.title)}:${item.year ?? ''}`
-}
-
-// Same paper, indexed by two different providers, doesn't always come back
-// with a DOI from BOTH of them — one might have it, the other might not (or
-// one is the preprint record, one the published version). Matching on DOI
-// *or* normalized title+year — instead of committing to whichever key the
-// first-seen record happened to have — is what catches that case; DOI-only
-// matching let those pairs both survive into the same claim's evidence list
-// as if they were two different sources.
-function findDuplicateIndex(clusters: NormalizedSourceResult[], item: NormalizedSourceResult): number {
-  const doi = normalizedDoi(item)
-  const titleYear = titleYearKey(item)
-  return clusters.findIndex((c) => (doi !== null && normalizedDoi(c) === doi) || titleYearKey(c) === titleYear)
-}
+// Which results are the same work (DOI, or title and year in any script):
+// workIdentity.ts.
 
 // Upper bound on how long one provider may hold up a search. Nothing else
 // bounded this: none of the four provider modules passed a signal or a
