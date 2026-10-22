@@ -13,7 +13,7 @@ import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
 import { noteClaimSeen } from "./lib/seenClaims.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
-         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, billingOrderGet, billingOrderPut, accountPurge, usagePurgeBefore } from "./lib/db.js";
+         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, billingOrderGet, billingOrderPut, accountPurge, usagePurgeBefore, requestCachePurge } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
          callerId, clientAddress, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
          flowQuota, recordFlow, reviewQuota, recordReview, kindQuota, recordKind, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
@@ -2308,6 +2308,14 @@ server.listen(PORT, BIND, () => {
   };
   sweepUsage();
   setInterval(sweepUsage, 24 * 3600 * 1000).unref?.();
+  /* Cached answers (lib/db.js request_cache) are deleted once past their
+   * kind's retention, 1 or 7 days, hourly, so none outlives it by more than an
+   * hour. Some carry the writer's own sentences; PRIVACY.md says when they go. */
+  const sweepCache = () => {
+    try { const n = requestCachePurge(); if (n) console.log(`[tracely] retention: dropped ${n} cached answers past their age`); } catch (e) { console.error("[tracely] cache retention sweep failed:", e?.message ?? e); }
+  };
+  sweepCache();
+  setInterval(sweepCache, 3600 * 1000).unref?.();
   console.log(`Tracely running at http://localhost:${PORT}${MOCK ? "  (MOCK MODE — no API calls)" : ""}`);
   // A try-out the operator configured but that is OFF says why (never the secret).
   const demoWhy = demoSecret() ? demoOffReason() : null;
