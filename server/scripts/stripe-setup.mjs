@@ -29,6 +29,18 @@ if (!KEY) {
 }
 const LIVE = KEY.startsWith("sk_live") || KEY.startsWith("rk_live");
 const MODE = LIVE ? "LIVE" : "TEST";
+/* Stripe's API, or a stand-in on this machine for test/stripe-setup-run.test.js.
+ * Only a loopback address is accepted, so a real key is never sent anywhere
+ * but Stripe. */
+const API_BASE = (() => {
+  const b = (process.env.STRIPE_API_BASE ?? "").trim();
+  if (!b) return "https://api.stripe.com/v1";
+  if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(b)) {
+    console.error("STRIPE_API_BASE is for the tests only, and must be http://127.0.0.1:<port>.");
+    process.exit(1);
+  }
+  return b;
+})();
 
 /* The pricing page is the source of truth: Student is advertised at $4.99 with
  * $10 shown struck through, so $4.99 is the charge and $10 must never become a
@@ -62,7 +74,7 @@ function safeMsg(e) {
 }
 
 async function api(method, path, params) {
-  const qs = new URL(`https://api.stripe.com/v1/${path}`);
+  const qs = new URL(`${API_BASE}/${path}`);
   const opts = { method, headers: { Authorization: `Bearer ${KEY}` } };
 
   /* A GET carries its parameters in the QUERY STRING and must not have a body.
@@ -153,13 +165,21 @@ try {
   console.log("The key is invalid, rolled, or lacks even read scope. Nothing was attempted.\n");
   process.exit(2);
 }
-if (!acct.charges_enabled) {
+/* Live objects made before activation cannot be sold, so LIVE stops here. A
+ * sandbox takes test payments whether or not the account is activated, and a
+ * test run is the rehearsal done before activation finishes (2026-10-22), so
+ * TEST goes on with a warning. */
+if (!acct.charges_enabled && LIVE) {
   console.log(r("\nThis account cannot accept charges yet."));
   console.log("Finish activation in the Dashboard first — creating prices against an");
   console.log("unactivated account produces objects you cannot sell.\n");
   process.exit(2);
 }
-console.log(g("\nAccount can accept charges") + (acct.payouts_enabled ? g(" and receive payouts") : y(" but payouts are NOT enabled")));
+if (!acct.charges_enabled) {
+  console.log(y("\nThe account is not activated for live payments yet. Going on: this is TEST mode, which takes test payments regardless."));
+} else {
+  console.log(g("\nAccount can accept charges") + (acct.payouts_enabled ? g(" and receive payouts") : y(" but payouts are NOT enabled")));
+}
 
 // ── 1. tax behaviour, before any price exists ───────────────────────────
 /* A price's tax_behavior is IMMUTABLE once set to inclusive or exclusive.
@@ -236,6 +256,12 @@ if (taxCode) {
   process.exit(4);
 }
 const priceIds = {};
+/* Each plan's product id, found or created in this run. The portal step needs
+ * it, and reading it back from existingProducts/existingPrices (both listed
+ * BEFORE anything is created) left it undefined on a first --apply: Stripe
+ * refused the portal with "Missing required param ...[products][0][product]"
+ * (2026-10-22, the first sandbox run). */
+const productIds = {};
 const existingProducts = await mustRead("products", { limit: 100, active: "true" }, "Products");
 const existingPrices = await mustRead("prices", { limit: 100, active: "true" }, "Prices");
 
@@ -262,6 +288,7 @@ for (const p of PLANS) {
     }
   }
 
+  if (product) productIds[p.env] = product.id;
   if (price) {
     priceIds[p.env] = price.id;
     console.log(`  ${g("exists")}  ${p.product} $${(p.cents / 100).toFixed(2)}/mo — ${price.id}`);
@@ -276,6 +303,7 @@ for (const p of PLANS) {
     const body = { name: p.product, description: p.blurb };
     if (taxCode) body.tax_code = taxCode.id;
     product = await post("products", body);
+    productIds[p.env] = product.id;
     console.log(`  ${g("created")}  product ${p.product} — ${product.id}${taxCode ? ` (tax code ${taxCode.id})` : ""}`);
   }
   // tax_behavior deliberately omitted: the account default governs, and that
@@ -307,7 +335,12 @@ for (const p of PLANS) {
     }
     continue;
   }
-  const found = (existingLinks.data ?? []).find((l) => l.active && (l.line_items?.data ?? []).some((li) => li.price?.id === pid));
+  /* Matched on the metadata this script puts on every link it makes. Listing
+   * payment links leaves line_items out unless expanded, so matching on them
+   * found nothing and every --apply made another pair (2026-10-22, the second
+   * sandbox run). line_items is still read when a response carries it. */
+  const found = (existingLinks.data ?? []).find((l) => l.active &&
+    (l.metadata?.price_id === pid || (l.line_items?.data ?? []).some((li) => li.price?.id === pid)));
   if (found) { linkUrls[p.key] = found.url; console.log(`  ${g("exists")}  ${p.product} — ${found.url}`); continue; }
   if (!APPLY) { note("plan", `create a Payment Link for ${p.product}`); console.log(`  ${y("would create")}  ${p.product}`); continue; }
   const link = await post("payment_links", {
@@ -365,7 +398,8 @@ try {
   note("manual", "Billing > Customer portal: turn ON 'Cancel subscriptions' with mode 'at end of billing period', turn ON 'Switch plan' listing both prices, leave 'Manage downgrades' OFF, then 'Ways to get started' > Activate link and put the https://billing.stripe.com/p/login/... URL into PORTAL_URL in extension/options.js.");
 }
 const active = (cfgs?.data ?? []).find((c) => c.active && c.is_default);
-const wantSwitch = Object.values(priceIds).filter(Boolean);
+// Plans with both ids known, in PLANS order, so each product keeps its price.
+const switchable = PLANS.filter((p) => priceIds[p.env] && productIds[p.env]);
 if (!portalReadable) {
   // nothing to do here; the manual note above carries it
 } else if (active?.features?.subscription_cancel?.enabled) {
@@ -396,14 +430,13 @@ if (!portalReadable) {
   // deliberately: enabling it attaches a subscription schedule, and a customer
   // with a scheduled update CANNOT cancel until it resolves — which would
   // silently revoke the cancel path the pricing page promises.
-  if (wantSwitch.length === 2) {
+  if (switchable.length === 2) {
     body["features[subscription_update][enabled]"] = "true";
     body["features[subscription_update][default_allowed_updates][0]"] = "price";
     body["features[subscription_update][proration_behavior]"] = "create_prorations";
-    wantSwitch.forEach((pid, i) => {
-      body[`features[subscription_update][products][${i}][product]`] = (existingPrices.data ?? []).find((x) => x.id === pid)?.product
-        ?? (existingProducts.data ?? []).find((x) => x.name === PLANS[i].product)?.id;
-      body[`features[subscription_update][products][${i}][prices][0]`] = pid;
+    switchable.forEach((p, i) => {
+      body[`features[subscription_update][products][${i}][product]`] = productIds[p.env];
+      body[`features[subscription_update][products][${i}][prices][0]`] = priceIds[p.env];
     });
   }
   const cfg = await post("billing_portal/configurations", body);
@@ -425,11 +458,11 @@ if (!APPLY) {
 } else {
   const envLines = Object.entries(priceIds).filter(([, v]) => v);
   if (envLines.length || whsec) {
-    console.log("Paste into the server's .env:\n");
+    console.log(`Set as the server's variables${LIVE ? "" : " (TEST values: for a test server only, never the live one)"}:\n`);
     for (const [k, v] of envLines) console.log(`  ${k}=${v}`);
     if (whsec) console.log(`  STRIPE_WEBHOOK_SECRET=${whsec}`);
-    console.log("\n  ssh root@45.56.92.67   then edit /srv/tracely/app/.env");
-    console.log("  It is re-read on every request, so nothing needs restarting.");
+    console.log("\n  Railway: the service > Variables (server/DEPLOY.md, \"Railway\"). A variable");
+    console.log("  change redeploys by itself. (On the old Linode: its .env, re-read per request.)");
     if (whsec) console.log(r("\n  The signing secret above is shown ONCE. Save it now."));
   }
   if (linkUrls.student || linkUrls.pro) {
