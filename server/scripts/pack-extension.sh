@@ -38,12 +38,13 @@
 # check at the end refuses a store zip that carries one anywhere.
 #
 # manifest.json's "key" is shipped unchanged in BOTH zips. It is the Web Store
-# item's own public key, and it pins the id (dffmoeebkkghhgcklkbmaibfhgiegmdm)
-# for unpacked builds so they match the published extension, Supabase's
-# redirect allowlist and the server's TRACELY_EXTENSION_ID. Verify it on the
-# first store upload from this layout: if the Web Store rejects the zip over
-# "key", strip the field from the STAGED store copy here — never from
-# extension/, which every unpacked build needs.
+# item's own public key, and it pins the id (pkaihmliboboiafoodfaoflflcpipcnd,
+# the listing on Merrick's developer account since 2.21.69) for unpacked
+# builds so they match the published extension, Supabase's redirect allowlist
+# and the server's TRACELY_EXTENSION_ID. A store accepts a key only when it is
+# that item's own: the listing was created (2026-10-21) from a copy with the
+# old listing's key taken out, and its public key was put here afterwards.
+# Never strip it from extension/, which every unpacked build needs.
 set -euo pipefail
 
 BETA=0

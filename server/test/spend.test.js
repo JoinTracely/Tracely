@@ -768,6 +768,13 @@ test("the manifest key derives the extension id Supabase and the server expect",
 
   const hex = createHash("sha256").update(der).digest("hex").slice(0, 32);
   const id = [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join("");
-  assert.equal(id, "dffmoeebkkghhgcklkbmaibfhgiegmdm",
+  // The listing on Merrick's developer account since 2.21.69. The old
+  // listing's id, dffmoeebkkghhgcklkbmaibfhgiegmdm, is still admitted by the
+  // server (TRACELY_EXTENSION_ID lists both) for installs of that listing.
+  assert.equal(id, "pkaihmliboboiafoodfaoflflcpipcnd",
     "the manifest key no longer derives the id registered with Supabase and the Web Store");
+
+  // The Docs hook names the same id: one id, the store's, everywhere.
+  const hook = srcOf("../extension/docs-hook.js").match(/const ANNOTATION_REQUESTER = "([^"]*)"/);
+  assert.equal(hook?.[1], id, "docs-hook.js ANNOTATION_REQUESTER is not the id the manifest key derives");
 });

@@ -31,7 +31,7 @@ downtime, because a volume cannot be attached to two copies at once.
    PORT=8080
    TRACELY_PUBLIC_HOSTS=api.jointracely.com,healthcheck.railway.app,${{RAILWAY_PUBLIC_DOMAIN}}
    TRACELY_TRUSTED_PROXY_HOPS=1
-   TRACELY_EXTENSION_ID=dffmoeebkkghhgcklkbmaibfhgiegmdm
+   TRACELY_EXTENSION_ID=pkaihmliboboiafoodfaoflflcpipcnd,dffmoeebkkghhgcklkbmaibfhgiegmdm
    SUPABASE_URL=https://sxifbtelrtbsgnnwnmdf.supabase.co
    SUPABASE_ANON_KEY=<the anon key: Supabase → Project Settings → API>
    TRACELY_PUBLIC_ORIGIN=https://api.jointracely.com
