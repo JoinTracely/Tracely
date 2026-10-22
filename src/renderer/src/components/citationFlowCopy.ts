@@ -21,7 +21,9 @@ import { NOT_INDEXED_NOTE } from '@shared/citedComparison'
 export const CITATION_STYLE_LABEL: Record<CitationStyle, string> = {
   APA: 'APA 7',
   MLA: 'MLA 9',
-  Chicago: 'Chicago 17'
+  // 18 since 2026-10-22: the reference list follows its author rule
+  // (main/services/citations/authorUtils.ts).
+  Chicago: 'Chicago 18'
 }
 
 /**
