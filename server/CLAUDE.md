@@ -107,7 +107,7 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   `LEGACY_MODEL_TIER` reads them all as fast — keep that map until no such
   build is in use; a desktop settings row holding `'balanced'` reads as fast
   too. Paid plans have no daily check limit but a per-account fair-use limit
-  (Student $1/day $4/month, Pro $2/$8) that drops them to Free's limits;
+  (Student $0.75/day $2.50/month, Pro $1.50/$5, since 2026-10-22) that drops them to Free's limits;
   source searches are metered on every plan (5/40, 20/100, 40/250 a
   day/month). The reverse skew is NOT handled: a 2.19.3+ extension on a
   pre-2026-09-21 server runs `gpt-5-nano` at the Fast stop's `medium` (the

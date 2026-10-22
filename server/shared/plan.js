@@ -290,10 +290,15 @@ export function thoroughMonthlyUsd(plan) {
  * refusal beyond what Free gets, and the plan and billing are unchanged. Pro's
  * includes its Thorough allowance. Beta testers have none: the beta pool and
  * betaWebSearchesPerHour bound them. At regular use a Student spends ~4 cents
- * a day and a Pro ~9, so these trip only far beyond normal writing. */
+ * a day and a Pro ~9, so these trip only far beyond normal writing.
+ *
+ * Lowered on 2026-10-22 (owner) from $1/$4 and $2/$8, so a subscriber at the
+ * limit still leaves a margin. After Stripe's fees a Student brings in about
+ * $4.51 a month and a Pro about $9.33; at $8 a Pro at the limit left about $1.
+ * The month is still about twice regular use for both. */
 export const FAIR_USE = {
-  student: { day: 1, month: 4 },
-  pro: { day: 2, month: 8 },
+  student: { day: 0.75, month: 2.5 },
+  pro: { day: 1.5, month: 5 },
 };
 
 /** `{ day, month }` in dollars for a paid plan, or null (free has no fair-use limit — it has quotas). */
