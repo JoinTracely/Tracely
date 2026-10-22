@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tracely \u2014 live fact-check while you write",
-  "version": "2.21.69",
+  "version": "2.21.70",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7eu2S09aIefYo1lZVaOZBl9KVTmWjNtChd7qGG4hXBmP0dl886T5WavnwVfqebDmdPUtaJSSb4L6ojTCkMnPfIOk9DxLVKrmaEZ4e0q52ZVogLzIiaYe3o6v8YUfFXcdk0VBFlHMkMBxFjxCofZOLV7DNeJcUMO0PLPZoNJGKhPXI+gP0maXep4ahSiZ8P5QQR6G/ovRTVVnt6TA7N0dBirS+4cURaFaFQ+FyJ0Qf959eZ2tr+8CjZIdCKd25VfjoRDiEiXUqEl6Jb2UZTN61p8HOvQEessBWdCCX4FP/3d3RKikao0N6RY5x7DCTWhsI0+2FzO0FuVS6c1lFTzIwwIDAQAB",
   "description": "Live AI fact-checking as you write. Underlines false or shaky sentences in any text field and suggests fixes with sources.",
   "options_page": "options.html",
