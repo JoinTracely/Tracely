@@ -1248,7 +1248,44 @@ function requireKey() {
   }
 }
 
+/* Shutting down (Codex review R1, 2026-10-22). Railway stops the old process
+ * on every deploy with SIGTERM, then kills it. Killed mid-request, a check or
+ * a search the vendor still bills is never charged to the pool, and the writer
+ * gets a dropped connection. So: stop taking work, let what is in flight
+ * finish and charge itself, print the hour's counts, then exit. Railway kills
+ * after RAILWAY_DEPLOYMENT_DRAINING_SECONDS (about 3 s unless set; DEPLOY.md
+ * sets 30), so the wait here is TRACELY_DRAIN_MS, 25 s by default. A second
+ * signal exits at once. */
+let inFlight = 0;
+let draining = false;
+const DRAIN_MS = Math.max(0, Number(process.env.TRACELY_DRAIN_MS) || 25_000);
+function shutDown(signal) {
+  if (draining) process.exit(1);
+  draining = true;
+  console.log(`[tracely] ${signal}: finishing ${inFlight} request(s) in flight, taking no more`);
+  server.close();
+  server.closeIdleConnections?.();
+  for (const line of [...takeUsageLines(), ...takeRepeatLines()]) console.log(line);
+  const until = Date.now() + DRAIN_MS;
+  const wait = () => {
+    if (inFlight === 0) { console.log("[tracely] drained; exiting"); process.exit(0); }
+    if (Date.now() >= until) { console.log(`[tracely] drain deadline: ${inFlight} request(s) cut off`); process.exit(0); }
+    setTimeout(wait, 50);
+  };
+  wait();
+}
+process.on("SIGTERM", () => shutDown("SIGTERM"));
+process.on("SIGINT", () => shutDown("SIGINT"));
+
 const server = http.createServer(async (req, res) => {
+  inFlight += 1;
+  res.on("close", () => { inFlight -= 1; });
+  if (draining) {
+    // A request on a connection that stayed open: the next server answers it.
+    res.writeHead(503, { "Content-Type": "application/json", "Retry-After": "5", Connection: "close" });
+    res.end(JSON.stringify({ error: { kind: "server", message: "Tracely is restarting. Try again in a few seconds." } }));
+    return;
+  }
   const cors = corsHeaders(req);
   // For the failure log only: the route, and the model/effort an extension
   // route resolved before its call. Never the request body.
@@ -1617,9 +1654,9 @@ const server = http.createServer(async (req, res) => {
       globalCounter?.stamp(); // before the call, not after
       if (perCaller) callerSearchRate.stamp(who);
       const started = Date.now();
-      // Hosted: the fast model with NO effort sent (modelForRoute "sources") —
-      // the vendor default every source search was measured at; the client's
-      // model and effort are not read. Local: pickModel, and the client's
+      // Hosted: the fast model at LOW effort (shared/plan.js ROUTE_EFFORT
+      // sources, which halved the median search against the vendor default);
+      // the client's model and effort are not read. Local: pickModel, and the client's
       // effort when it sent one (normalised), as before.
       const choice = ent.enforced ? hostedChoice("sources", ent, who) : null;
       const modelUsed = extensionModel(gate, "/api/sources", choice ? choice.model : appModelFor("sources", ent, model));

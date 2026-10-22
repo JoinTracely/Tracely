@@ -23,7 +23,11 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
 - **The prompts live in `server/lib/prompts/`**, one file per route, and
   `server/test/prompts.test.js` pins each one's SHA-256. Editing a prompt is
   allowed and should be a decision: every one carries numbers measured on real
-  drafts, so re-measure, then update the hash.
+  drafts, so re-measure, then update the hash. Since 2026-10-22 (Codex review
+  R4) the prompts written inline are pinned too: the extension's check and
+  source search, the flow and review prompts (`factcheck.js`
+  `INLINE_PROMPTS`), the receipts' `VERIFY_SYSTEM` and `COVER_SYSTEM`, and
+  the custom-grade prompt. Before that, only `lib/prompts/` was.
 - **The guardrails run on the server**, so every client gets them:
   `normalizeCritique` (a revision may only narrow; `fabricated` is withdrawn
   when no reference lookup ran) and `verifyGrade` (a finding whose quote is not
@@ -97,7 +101,7 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   and `thorough`; `gpt-5.6-terra` (balanced) is retired. The client's model
   id is read only on those two routes and only picks thorough over fast; the
   client's effort is never read on a hosted server (check `medium`, sources
-  none, everything else `low`). A local server keeps `pickModel`. The ids are
+  `low`, everything else `low`; `ROUTE_EFFORT`). A local server keeps `pickModel`. The ids are
   copied by hand into `server/shared/plan.js` and `src/shared/plan.ts`
   (`MODEL_FOR_TIER`); `server/test/models.test.js` fails if they drift. The
   extension still ships its three-stop slider (terra on the middle stop)

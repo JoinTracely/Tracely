@@ -1151,3 +1151,16 @@ function mockSources(claim, model) {
     usage: { input: 0, output: 0, cached: 0 },
   };
 }
+
+/* The inline instructions, exported for test/prompts.test.js's pins only
+ * (Codex review R4, 2026-10-22). The desktop's prompts live in lib/prompts/
+ * and were pinned there; these five — the extension's check, its source
+ * search and its three older reviews — are written inline here and were not,
+ * so an edit to them could ship unmeasured. Not for any other caller. */
+export const INLINE_PROMPTS = {
+  check: () => systemPrompt(),
+  sources: () => SOURCES_SYSTEM,
+  flow: () => flowSystemPrompt(),
+  review: () => reviewSystemPrompt(),
+  essayReview: () => essayReviewSystemPrompt(),
+};

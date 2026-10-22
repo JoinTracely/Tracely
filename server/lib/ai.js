@@ -154,3 +154,6 @@ function mockSentencesOf(text) {
   return (text.match(/[^.!?\n]+[.!?]?/g) ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
+
+// For test/prompts.test.js's pins only (Codex review R4, 2026-10-22).
+export { customGradeSystemPrompt };

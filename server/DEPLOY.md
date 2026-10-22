@@ -28,6 +28,7 @@ downtime, because a volume cannot be attached to two copies at once.
    by the owner and never pasted into a chat:
    ```
    RAILWAY_DOCKERFILE_PATH=server/Dockerfile
+   RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30
    PORT=8080
    TRACELY_PUBLIC_HOSTS=api.jointracely.com,healthcheck.railway.app,${{RAILWAY_PUBLIC_DOMAIN}}
    TRACELY_TRUSTED_PROXY_HOPS=1
@@ -42,6 +43,11 @@ downtime, because a volume cannot be attached to two copies at once.
    nothing is spent. It comes out at the switch, when `OPENAI_API_KEY` goes
    in. The daily budgets default to $10 a pool and the try-out's to $2
    (`.env.example`). Set them here only to change them.
+   `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30` gives the old process 30 s between
+   Railway's SIGTERM and its kill (about 3 s otherwise, per Railway staff;
+   unverified). The server uses 25 of them (`TRACELY_DRAIN_MS`) to finish
+   the checks and searches in flight, so they are answered and charged
+   (server.js `shutDown`, test/shutdown.test.js).
 3. **Volume:** service → right-click → Attach volume, mount path **`/data`**.
    `scripts/container-start.sh` refuses to start without it, rather than
    writing the database to a disk the next deploy wipes.
@@ -573,7 +579,8 @@ has the limits. Before a deploy that changes a tier, know these things:
   usage still prices.
 - **The client's effort is never read on a hosted server.** `/api/check` runs
   luna at `medium` (100% in the eval, against 90% at low), `/api/sources`
-  sends no effort (the vendor default every search was measured at), and
+  runs at `low` (`ROUTE_EFFORT` in shared/plan.js: it halved the median
+  search against the vendor default, with the same sources and fields), and
   every other route runs at `low`; astra runs at `low`, its only measured
   level. Shipped extensions sent `medium` or `high`, and on flow, critique,
   correction, structure and find-sources that used to pass straight through.

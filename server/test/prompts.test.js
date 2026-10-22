@@ -169,6 +169,35 @@ const PINNED = {
   KIND_SYSTEM_PROMPT: [kind, "4790128ed3056efe8e91216cb96f526cb0fa187c9a5b7b3d9a92cfee6a81d062"], // eval/kinds/run.mjs
   CITE_FIT_SYSTEM: [citeFit, "1edfda805a61c54554a6a65b2a76774f9ccb2d21e3c239249466f898c539439f"], // eval/citefit/run.mjs
 };
+/* ── pinned: the prompts written inline in lib/ (Codex review R4, 2026-10-22)
+ * The map above covers lib/prompts/. These were never pinned, so the
+ * extension's own check, its source search and the receipts' judges could
+ * change without a test noticing. Same rule: change one on purpose,
+ * re-measure it (eval/models/harness for the check, eval/goldset for the
+ * search and the verifier), add a dated section to eval/models/FINDINGS.md,
+ * then update its hash here. The check states today's date, so dates are
+ * normalised before hashing; the custom-grade prompt is hashed with a fixed
+ * rubric, since the teacher's rubric is its input. */
+const { INLINE_PROMPTS } = await import("../lib/factcheck.js");
+const { VERIFY_SYSTEM, COVER_SYSTEM } = await import("../lib/sourceVerify.js");
+const { customGradeSystemPrompt } = await import("../lib/ai.js");
+const INLINE_PINNED = {
+  "factcheck.js check (systemPrompt)": [() => INLINE_PROMPTS.check(), "27738ff65277e556965aa295ddae5caeadaf9a29da116411dd0ad2d08083c3e7"],
+  "factcheck.js SOURCES_SYSTEM": [() => INLINE_PROMPTS.sources(), "991d85e482af11e51d9cc6bb5c7702555a659af620fef065a474ab95396f6611"],
+  "factcheck.js flowSystemPrompt": [() => INLINE_PROMPTS.flow(), "598d7164fe904998f36136597daa9ebb4ced722e5b6f47aebe2c51daa6e9e033"],
+  "factcheck.js reviewSystemPrompt": [() => INLINE_PROMPTS.review(), "047f0534e70eac5a3a2e85cbacda75d2802eacb88bee23b0c23a3cb1a13bbffb"],
+  "factcheck.js essayReviewSystemPrompt": [() => INLINE_PROMPTS.essayReview(), "a25ee98a22a81592f149b9fdfd14c16224cc61756b29e10c4279125ea45ffbd5"],
+  "sourceVerify.js VERIFY_SYSTEM": [() => VERIFY_SYSTEM, "9cc38833bbaa530da91adef19b14044460fbc8a9646e23d60327cf5f6fc7dee6"],
+  "sourceVerify.js COVER_SYSTEM": [() => COVER_SYSTEM, "6ea31160c5383c72d5ae6518631401eb423dca58c2d424033d51e7b249615d8d"],
+  "ai.js customGradeSystemPrompt": [() => customGradeSystemPrompt("RUBRIC"), "5725c2cab069a9928aac9baa5cfd23ef784057f97d1ee13394f0722b622855b0"],
+};
+test("every inline prompt is still the text that was measured", () => {
+  for (const [name, [text, want]] of Object.entries(INLINE_PINNED)) {
+    const got = createHash("sha256").update(String(text()).replace(/\b\d{4}-\d{2}-\d{2}\b/g, "YYYY-MM-DD")).digest("hex");
+    assert.equal(got, want, `${name} changed. If on purpose, re-measure it, add a dated section to eval/models/FINDINGS.md, and update its hash in test/prompts.test.js.`);
+  }
+});
+
 test("every prompt is still the text that was verified against the relay", () => {
   for (const [name, [mod, want]] of Object.entries(PINNED)) {
     const got = createHash("sha256").update(mod[name]).digest("hex");
