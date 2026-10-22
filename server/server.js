@@ -11,7 +11,7 @@ import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
 import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
-import { noteClaimSeen } from "./lib/seenClaims.js";
+import { noteClaimSeen, takeRepeatLines } from "./lib/seenClaims.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, billingOrderGet, billingOrderPut, accountPurge, usagePurgeBefore } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
@@ -19,7 +19,7 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, reco
          flowQuota, recordFlow, reviewQuota, recordReview, kindQuota, recordKind, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, reservedMicroCents, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
-import { tallyCall, takeUsageLines } from "./lib/usageTally.js";
+import { tallyCall, takeUsageLines, tallyCache } from "./lib/usageTally.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, KIND_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
@@ -978,7 +978,7 @@ function promptCacheKey(gate) {
 }
 
 // Once an hour, what the charged calls cost by route, cache reads and writes included (lib/usageTally.js).
-setInterval(() => { for (const line of takeUsageLines()) console.log(line); }, 3_600_000).unref?.();
+setInterval(() => { for (const line of [...takeUsageLines(), ...takeRepeatLines()]) console.log(line); }, 3_600_000).unref?.();
 
 /* The app routes' gate: the same shape as spendGate, over the APP pool and
  * the app limiter. Budget first, then velocity, both before the body is read;
@@ -1194,6 +1194,7 @@ async function appCall(gate, { task, route = task, requested, effort = undefined
   const key = cache ? cache.key(model, choice.effort) : null;
   if (cache && !MOCK) {
     const hit = cacheGet(cache.kind, key, { maxAgeMs: cache.maxAgeMs, version: cache.version ?? 1 });
+    tallyCache(cache.kind, Boolean(hit)); // the hourly "[tracely] cache" line
     if (hit) return hit;
   }
   const quota = meter.check(gate.ent, gate.callerId);
@@ -1610,7 +1611,9 @@ const server = http.createServer(async (req, res) => {
       // Would a cross-user cache have answered this? Counted in memory only
       // (lib/seenClaims.js) — a hash, never the claim, never on disk — so the
       // hit rate is known before anyone decides whether to build the cache.
-      const wouldHit = noteClaimSeen(claim);
+      // Scoped so the try-out's one sample essay, searched by every visitor,
+      // and a correction search never count as a repeat of a writer's search.
+      const wouldHit = noteClaimSeen(claim, Date.now(), { scope: gate.demo ? "demo-sources" : correction ? "sources-correction" : "sources", caller: who });
       /* The live search (POST /api/sources/stream, extension 2.21.29+): the
        * same search and the same final answer, with what is happening sent as
        * it happens — server-sent events, because Apache passes them through

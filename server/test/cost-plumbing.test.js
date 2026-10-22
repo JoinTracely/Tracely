@@ -76,3 +76,19 @@ test("every shard of a check carries the caller's key", async () => {
   assert.ok(sent.length >= 2, `sharded (${sent.length} calls)`);
   assert.ok(sent.every((b) => b.prompt_cache_key === "tc-k1"), "each call keyed alike, so they land on the same cache");
 });
+
+test("the server's own result cache: hits and misses per kind, hourly, never a key", async () => {
+  const { tallyCache } = await import("../lib/usageTally.js");
+  takeUsageLines(); // start clean
+  tallyCache("find-sources", true);
+  tallyCache("find-sources", false);
+  tallyCache("find-sources", true);
+  tallyCache("critique", false);
+  tallyCache("a user's sentence that must never be a key", true);
+  assert.deepEqual(takeUsageLines(), [
+    "[tracely] cache kind=critique hits=0 of 1 (0%)",
+    "[tracely] cache kind=find-sources hits=2 of 3 (67%)",
+    "[tracely] cache kind=other hits=1 of 1 (100%)",
+  ]);
+  assert.deepEqual(takeUsageLines(), [], "each take starts the next hour fresh");
+});

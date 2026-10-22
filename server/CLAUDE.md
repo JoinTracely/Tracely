@@ -208,6 +208,17 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   searches cost`. The `cached` and `write` shares are the prompt cache's
   reads (a tenth of input) and writes (1.25×), which nothing recorded before,
   so measure any caching change against these lines. Counts and dollars only.
+  Two more lines print with them (2026-10-22):
+  - **`[tracely] cache kind=… hits=N of M`**: how often the server's own
+    result cache (appCall's `cache`, the desktop's routes) answered with no
+    model call at all.
+  - **`[tracely] repeats scope=… searches seen other`**: the extension's
+    source searches whose sentence was already searched in the last two
+    weeks, and how many of those were by ANOTHER caller (`lib/seenClaims.js`:
+    a keyed hash in memory, never the sentence, never on disk). `other` is
+    what a cache shared between people would save. `demo-sources` (the
+    try-out's one sample essay) and `sources-correction` are kept apart. A
+    deploy forgets what was seen, so read it as a lower bound.
   - **`TRACELY_PROMPT_CACHE_KEY=caller`** (off by default) sends a hashed
     per-caller `prompt_cache_key` on `/api/check`. It changes where a call
     runs, never what it answers. It is off because a cache write costs more
