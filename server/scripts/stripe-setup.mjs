@@ -153,13 +153,21 @@ try {
   console.log("The key is invalid, rolled, or lacks even read scope. Nothing was attempted.\n");
   process.exit(2);
 }
-if (!acct.charges_enabled) {
+/* Live objects made before activation cannot be sold, so LIVE stops here. A
+ * sandbox takes test payments whether or not the account is activated, and a
+ * test run is the rehearsal done before activation finishes (2026-10-22), so
+ * TEST goes on with a warning. */
+if (!acct.charges_enabled && LIVE) {
   console.log(r("\nThis account cannot accept charges yet."));
   console.log("Finish activation in the Dashboard first — creating prices against an");
   console.log("unactivated account produces objects you cannot sell.\n");
   process.exit(2);
 }
-console.log(g("\nAccount can accept charges") + (acct.payouts_enabled ? g(" and receive payouts") : y(" but payouts are NOT enabled")));
+if (!acct.charges_enabled) {
+  console.log(y("\nThe account is not activated for live payments yet. Going on: this is TEST mode, which takes test payments regardless."));
+} else {
+  console.log(g("\nAccount can accept charges") + (acct.payouts_enabled ? g(" and receive payouts") : y(" but payouts are NOT enabled")));
+}
 
 // ── 1. tax behaviour, before any price exists ───────────────────────────
 /* A price's tax_behavior is IMMUTABLE once set to inclusive or exclusive.
