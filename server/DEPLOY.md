@@ -4,9 +4,10 @@ The server (what is live, and since when, is in `STATUS.md`), and how to redeplo
 
 ## Railway (the new home, from 2026-10)
 
-The server is moving off the Linode below, which is Sam's own box, to
-[Railway](https://railway.com) in Merrick's account. **Until `api.jointracely.com`
-points at Railway, the Linode is what is live.**
+The server moved off the Linode below, which is Sam's own box, to
+[Railway](https://railway.com) in Merrick's account. **Since 2026-10-23 03:51 UTC,
+`api.jointracely.com` is Railway** (project `protective-serenity`, service
+`Tracely`). The Linode sections further down are history until it is shut down.
 
 Railway runs one container (`server/Dockerfile`, built with the repo root as its
 context) with one volume for the SQLite file. There is no SSH, no Apache, no
@@ -76,9 +77,18 @@ downtime, because a volume cannot be attached to two copies at once.
    before the first real deploy. Without it the server starts fresh: plans
    live in Supabase, so only usage counts, the Stripe event order and
    unclaimed purchases reset.
-3. Settings → Networking → Custom Domain → `api.jointracely.com`. Add the
-   CNAME (and the TXT record, if Railway asks for one) in Vercel DNS for
-   `jointracely.com`. Railway issues the certificate itself.
+3. Settings → Networking → Custom Domain → `api.jointracely.com`. Railway
+   asks for **two** records in Vercel DNS for `jointracely.com`, and **the
+   TXT goes in first**:
+   - TXT `_railway-verify.api` = `railway-verify=<token>`;
+   - then the CNAME `api` → `<id>.up.railway.app`, replacing the old record.
+
+   Railway issues the certificate only once the TXT proves ownership. On
+   2026-10-23 the CNAME went in alone, and `api.jointracely.com` served
+   Railway's `*.up.railway.app` certificate (so every client failed) for
+   about 40 minutes, until the TXT was added. Its API's `status.dnsRecords`
+   lists only the CNAME: the TXT is in `status.verificationDnsHost` and
+   `status.verificationToken`, and in the dashboard's "Configure DNS Records".
 4. `server/scripts/healthcheck.sh https://api.jointracely.com`, then
    `healthcheck.sh --demo`.
 5. Then retire the Linode: revoke the old OpenAI key, delete
