@@ -925,6 +925,27 @@
         await sleep(SELECT_POLL_MS);
       }
     }
+    /* Docs' copy of a selection that crosses a line break need not write the
+       break as getText() does: one "\n" there, but a copy can carry "\r\n" or
+       a blank line between paragraphs. Owner, 2026-10-23: removing a Works
+       Cited entry, the one edit that selects across a line break (the line
+       above it is kept), failed `check: copy` four times out of four while
+       the selection, text and plan checks all passed. So the copy is read
+       with each run of line breaks as one, and the spaces beside a break
+       dropped: the words, in order, must still match exactly. */
+    const lineFold = (s) => nrm(s).replace(/[ \t]*\n\s*/g, "\n").trim();
+    /* How a copy that did not match differs, for the diagnostics, with no
+       word of the document in it: lengths, line breaks, and the kind of
+       character each side has where they part (a break, a space, a letter
+       or digit, a mark, or the end). */
+    function copyShape(got, want) {
+      const g = lineFold(got), w = lineFold(want);
+      let i = 0;
+      while (i < g.length && i < w.length && g[i] === w[i]) i++;
+      const kind = (c) => (c == null ? "end" : c === "\n" ? "break" : /\s/.test(c) ? "space" : /[\p{L}\p{N}]/u.test(c) ? "letter" : "mark");
+      const breaks = (x) => (nrm(x).match(/\n/g) || []).length;
+      return { gotLen: g.length, wantLen: w.length, gotBreaks: breaks(got), wantBreaks: breaks(want), at: i, gotIs: kind(g[i]), wantIs: kind(w[i]) };
+    }
     // The selection [s, e) proved on text that is still T1: exactly that
     // range, the sentence and the changed words where they were planned, and
     // Docs' own copy of it reading those words. `check` names what failed.
@@ -936,8 +957,8 @@
       const want = oldN.slice(oa, ob).trim();
       if (nrm(T.slice(s, e)).trim() !== want) return { ok: false, reason: "selection-mismatch", check: "plan" };
       const copied = e > s ? copyReadback() : null;
-      const copyOk = copied == null ? null : nrm(copied).trim() === want;
-      if (copyOk === false) return { ok: false, reason: "selection-mismatch", check: "copy" };
+      const copyOk = copied == null ? null : lineFold(copied) === lineFold(want);
+      if (copyOk === false) return { ok: false, reason: "selection-mismatch", check: "copy", shape: copyShape(copied, want) };
       return { ok: true, copyOk };
     }
     function mapPos(p, s, e, ins) {
@@ -1198,7 +1219,7 @@
         // ── one synchronous block: select → verify → edit ──
         try { at.setSelection(plan.s, plan.e); } catch { /* checkSel sees it */ }
         const c = checkSel(at, T1, loc, plan);
-        if (!c.ok) return { ok: false, reason: c.reason, check: c.check, mode, retry: c.check !== "plan" };
+        if (!c.ok) return { ok: false, reason: c.reason, check: c.check, ...(c.shape ? { shape: c.shape } : {}), mode, retry: c.check !== "plan" };
         done = { T1, loc, plan, copyOk: c.copyOk };
         if (!dry) {
           if (plan.insert) paste(plan.insert, pasteHtml);

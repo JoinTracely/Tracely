@@ -737,6 +737,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.72", "Remove from list works on a Works Cited entry your essay never cites, instead of saying the sentence couldn't be selected safely."],
   ["2.21.71", "Fixes and citations Tracely types into your document use ordinary single spaces, never a wide or doubled one. A card that grows when you click Suggest fix keeps its buttons in view."],
   ["2.21.70", "Find a source now reads the paragraph your sentence is in, even far into a long essay, so it searches for what that sentence means in context."],
   ["2.21.69", "Tracely now comes from its own Chrome Web Store listing. Nothing changes in how it checks, and the privacy policy link points to Tracely's new home on GitHub."],
