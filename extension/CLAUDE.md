@@ -124,6 +124,25 @@ backing, with its receipt (`trimmedSourceEntry`): no second search. A
 partial result is saved with the doc like a source list. Tests:
 `server/test/ext-trim-detail.test.js`.
 
+## What Tracely types: plain spaces
+
+Since 2.21.71 (owner, 2026-10-23: "tracely keeps making these big spaces").
+Every text typed into a document goes through `typedText` (shared helpers):
+Docs mode's `runDocEdit` cleans its job first (`typedJob`, before Review all
+or the preview sees it), and field mode's `replaceInField` and `fixInField`
+do the same. A model's fix, a source's words or a citation can carry a
+no-break, narrow, thin or em space, or two spaces where one belongs.
+- **Every `\p{Zs}` becomes a plain space.** Line breaks and tabs stay.
+- **Runs of spaces become one**, unless the replaced text has a run of its
+  own: a writer's two spaces after a full stop stay.
+- **The ends follow the replaced text's**, so a fix never doubles the space
+  beside its sentence.
+- **Never what is looked FOR** (`find`, `before`): it must match the document.
+
+Which character the owner saw was not identified (the chat turned it into a
+plain space), so this covers them all. Tests:
+`server/test/ext-typed-spaces.test.js`.
+
 ## Every card ends in a fix
 
 Owner, 2026-10-08: a card with only Dismiss is a comment, not help. Since
@@ -534,6 +553,22 @@ PIECE: side and size are decided when it opens or its content changes
 (`popPlanned`, reset by `paintPop`), never by a scroll, which only carries it
 with its line — half out of view included; it is lost only once the card has
 left the view. Its button rows wrap rather than clip (`dmActions`).
+
+Since 2.21.71 (owner, 2026-10-23: "Tracely overlay sometimes cuts out on the
+bottom when I click suggest fix"): a click is made with the pointer on the
+card, so it keeps its side while its content grows. It used to be capped to
+the room left, and its `overflow: hidden` cut off what did not fit, buttons
+included, because only a list of sources had a scroll region of its own. Now
+(`placeDocsPopover`):
+- **A capped card scrolls itself** (`overflowY: auto`), and its row of
+  buttons (`dmActions`, `data-dm-actions`) is sticky at its bottom over the
+  card's colour. The buttons sit where they always do: checked in Chrome,
+  16px above the inner edge, scrolled or not.
+- **A held card still moves once** when its side cannot show even a short
+  card (`MIN_CARD`) and the other side has more room (`cramped`), because its
+  buttons would otherwise be past the edge of the screen.
+
+Not checked in real Docs.
 
 Since 2.21.35 the hover is Grammarly's (owner, 2026-10-09: "the cursor
 detection hover system is bad. make it as snappy and just like grammarly …

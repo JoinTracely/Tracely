@@ -183,6 +183,8 @@ function load({ nolist = false, inline = [] } = {}) {
     }
     function docDeleteTip(id) { if (!docText.includes(tip.quote) || docBusy) return Promise.resolve(false); return runDocEdit("del:" + id, { steps: [{ action: "replace", find: "${STRAY} Next.", replacement: "Next." }] }); }
     // runDocEdit: its REAL head (record / preview / approve), then "sent" in place of the engine.
+    ${sliceBetween(SRC, "  function typedText(text", "  /* ── sentence boundaries")}
+    ${sliceBetween(SRC, "    function typedJob(job) {", "    /* Run one edit")}
     ${head}
       log.sent.push({ key, job });
       docBusy = false;
