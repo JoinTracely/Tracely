@@ -1402,6 +1402,28 @@
     return t.slice(lo, hi);
   }
 
+  /* What Tracely types: plain spaces (owner, 2026-10-23: "tracely keeps
+     making these big spaces"). What goes into a document comes from a
+     model's fix, a source's words (a page's &nbsp;) or a citation, and any
+     of them can carry a no-break, narrow, thin or em space, which Docs draws
+     wider than a space or never wraps, or two spaces where one belongs. So
+     every typed text (typedText; Docs mode's typedJob, field mode's writes):
+     - every Unicode space separator (\p{Zs}) becomes a plain space; line
+       breaks and tabs stay;
+     - a run of spaces becomes one, unless the text it replaces has a run
+       of its own (two spaces after a full stop stay the writer's choice);
+     - its ends follow the replaced text's: no space at an end that had
+       none, so a fix never doubles the space beside its sentence.
+     Text Tracely looks FOR is never changed: it has to match the document. */
+  function typedText(text, replaced = "") {
+    let t = String(text ?? "").replace(/\p{Zs}/gu, " ");
+    const was = String(replaced ?? "");
+    if (!/ {2}/.test(was.replace(/\p{Zs}/gu, " "))) t = t.replace(/ {2,}/g, " ");
+    if (!/^\s/.test(was)) t = t.replace(/^ +/, "");
+    if (!/\s$/.test(was)) t = t.replace(/ +$/, "");
+    return t;
+  }
+
   /* ── sentence boundaries: the server's rules, inlined ─────────────────
      This used to split at every ".", "!" or "?" — so "the U.S. Army" became
      the sentence "…the U." and "Harry S. Truman" ended at "S.", and the
@@ -7449,6 +7471,7 @@
        line (the link keeps its marginLeft:auto, so it sits at the right). */
     function dmActions(...kids) {
       const row = el("div", { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", flex: "0 0 auto" });
+      row.setAttribute?.("data-dm-actions", ""); // a capped card keeps this row in view (placeDocsPopover)
       for (const k of kids) if (k) row.appendChild(k);
       return row;
     }
@@ -7692,15 +7715,35 @@
         const cardH = popNaturalHeight();
         const spaceBelow = innerHeight - below - 8;
         const spaceAbove = markTop - POP_GAP - 8;
-        const fits = (side) => cardH <= (side === "above" ? spaceAbove : spaceBelow) - TAIL_NET;
-        if (!popSide || (!popHeld && !fits(popSide))) {
+        const roomOf = (side) => (side === "above" ? spaceAbove : spaceBelow) - TAIL_NET;
+        const fits = (side) => cardH <= roomOf(side);
+        /* Held, it keeps its side, so it never moves out from under the
+           pointer: unless its content grew (Suggest fix, a list) with its line
+           so near the screen's edge that its side cannot show even a short
+           card while the other side has more room. Owner, 2026-10-23: "Tracely
+           overlay sometimes cuts out on the bottom when I click suggest fix".
+           Staying would leave its buttons past the edge of the screen. */
+        const other = popSide === "above" ? "below" : "above";
+        const cramped = Boolean(popSide) && roomOf(popSide) < Math.min(cardH, MIN_CARD) && roomOf(other) > roomOf(popSide);
+        if (!popSide || (!popHeld && !fits(popSide)) || cramped) {
           popSide = fits("below") ? "below" : fits("above") ? "above" : spaceAbove > spaceBelow ? "above" : "below";
         }
         // Capped only when it is taller than the room on its side, so the
         // buttons never fall past the fold; then its list is what scrolls.
-        const room = (popSide === "above" ? spaceAbove : spaceBelow) - TAIL_NET;
+        const room = roomOf(popSide);
         const cap = cardH > room ? `${Math.max(MIN_CARD, room)}px` : "";
         if (popCard.style.maxHeight !== cap) popCard.style.maxHeight = cap;
+        /* Capped, the card itself scrolls. A step with no list of its own (a
+           problem's why, a suggested fix) used to lose its bottom, buttons
+           included, to the card's overflow: hidden. Its row of buttons
+           (dmActions) stays in view at the bottom while the rest scrolls. */
+        const overflowY = cap ? "auto" : "hidden";
+        if (popCard.style.overflowY !== overflowY) popCard.style.overflowY = overflowY;
+        for (const row of popCard.querySelectorAll(":scope > [data-dm-actions]")) {
+          Object.assign(row.style, cap
+            ? { position: "sticky", bottom: "-16px", padding: "8px 0 16px", marginBottom: "-16px", background: DM.surface }
+            : { position: "", bottom: "", padding: "", marginBottom: "", background: "" });
+        }
       }
       const above = popSide === "above";
       if (above !== popAbove) {
@@ -9643,11 +9686,33 @@
        second preview: the list was the preview. */
     const editGate = { collect: null, approved: new Set() };
 
+    /* The job as it will be typed: plain single spaces in what goes INTO the
+       Doc (a step's `replacement` and `line`, the copy fallback), never in
+       what is looked for (`find`, `before`). See typedText. Cleaned before the
+       preview and before "Review all" collects it, so both show what lands. */
+    function typedJob(job) {
+      if (!job || !Array.isArray(job.steps)) return job;
+      const step = (s) => {
+        if (!s || typeof s !== "object") return s;
+        const out = { ...s };
+        if (typeof s.replacement === "string") out.replacement = typedText(s.replacement, s.find);
+        if (typeof s.line === "string") out.line = typedText(s.line);
+        return out;
+      };
+      return {
+        ...job,
+        steps: job.steps.map(step),
+        ...(Array.isArray(job.retry) ? { retry: job.retry.map(step) } : {}),
+        ...(typeof job.copy === "string" ? { copy: typedText(job.copy) } : {}),
+      };
+    }
+
     /* Run one edit — or a GROUP of edits that must land together — and settle
        the button. A group that fails part-way is taken back, newest first, so
        the doc is exactly as it was; then the text is copied instead. */
     async function runDocEdit(key, job) {
       if (docBusy) return false;
+      job = typedJob(job);
       if (editGate.collect && key.startsWith(editGate.collect.prefix)) {
         editGate.collect.take(key, job); // recorded for the writer to choose; nothing is sent
         return false;
@@ -13542,6 +13607,7 @@
     function replaceInField(find, replacement) {
       const el = tracked;
       if (!el || !el.isConnected || !find || !replacement) return false;
+      replacement = typedText(replacement, find); // plain single spaces only
       try {
         if (el instanceof HTMLTextAreaElement) {
           const v = el.value;
@@ -13677,7 +13743,7 @@
           // Recompute the sentence's range against the CURRENT value.
           const seg = segmentText(el.value).find((s) => s.hash === hash);
           if (!seg) { fallbackCopy(); render(); return; }
-          const replacement = withMarkers(seg.text, rev);
+          const replacement = typedText(withMarkers(seg.text, rev), seg.text);
           el.focus();
           el.setRangeText(replacement, seg.start, seg.end, "end");
           // Controlled inputs (React et al.): re-assert through the native
@@ -13692,7 +13758,7 @@
           const seg = segmentText(index.text).find((s) => s.hash === hash);
           const range = seg ? rangeForOffsets(index, seg.start, seg.end) : null;
           if (!range) { fallbackCopy(); render(); return; }
-          const replacement = withMarkers(seg.text, rev);
+          const replacement = typedText(withMarkers(seg.text, rev), seg.text);
           el.focus();
           const sel = window.getSelection();
           sel.removeAllRanges();

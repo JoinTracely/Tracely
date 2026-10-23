@@ -26,10 +26,12 @@ function load() {
     get offsetHeight() { const cap = parseFloat(this.style.maxHeight); return Math.min(this.natural, Number.isFinite(cap) ? cap : Infinity); },
     get clientHeight() { return this.offsetHeight - 4; },
     get scrollHeight() { return this.clientHeight; }, // the list shrinks; the card itself never overflows
-    querySelectorAll: () => [list],
+    // Its row of buttons (dmActions) when asked for it; otherwise the list.
+    querySelectorAll: (sel) => (sel.includes("data-dm-actions") ? [actions] : [list]),
   };
   // The list that scrolls: whatever the cap hides is in it.
   const list = { style: { overflowY: "auto" }, get clientHeight() { return 100; }, get scrollHeight() { return 100 + (card.natural - card.offsetHeight); } };
+  const actions = { style: {} };
   const tail = { style: {}, remove() {} };
   const pop = { style: {}, querySelector: () => tail, appendChild() {}, insertBefore() {}, addEventListener() {} };
   const ctx = vm.createContext({ innerWidth: 1200, innerHeight: 800 });
@@ -37,12 +39,13 @@ function load() {
     ${sliceBetween(SRC, "    const POP_WIDTH = 320", "\n")}
     ${sliceBetween(SRC, "    const MIN_CARD =", "\n")}
     let popEl = null, popCard = null, popAbove = false, popWidth = POP_WIDTH;
+    const DM = { surface: "#fff" };
     const dmTail = () => ({ style: {}, remove() {} });
     ${sliceBetween(SRC, "    let popSide = null;", "    /* Follow loop")}
     ({ place: (r) => placeDocsPopover(r), open: (el, c) => { popEl = el; popCard = c; popSide = null; popHeld = false; popAbove = false; popPlanned = false; },
        repaint: () => { popPlanned = false; }, // what paintPop does when the card's content changes
        side: () => popSide, hold: (v) => { popHeld = v; } })`, ctx);
-  return { X, card, pop };
+  return { X, card, pop, actions };
 }
 const line = (top) => ({ left: 300, top, bottom: top + 4, centerX: 400 });
 const topOf = (pop) => parseFloat(pop.style.top);
@@ -129,6 +132,54 @@ test("one piece: a scroll carries the card with its line, half out of view inclu
   for (const y of [300, 500, 700, 780]) d.X.place(line(y));
   assert.equal(topOf(d.pop), 780 + 4 + 10, "and down past the bottom");
   assert.equal(d.card.style.maxHeight, "", "never squeezed on the way");
+});
+
+/* Owner, 2026-10-23: "Tracely overlay sometimes cuts out on the bottom when I
+ * click suggest fix". The click is made with the pointer on the card, so it
+ * keeps its side (held) while its content grows. It was capped to the room
+ * left, and the card's overflow: hidden cut off whatever did not fit, buttons
+ * included: only a list of sources had a scroll region of its own. */
+test("held while Suggest fix grows it: it stays put, capped, the card scrolls and its buttons stay in view", () => {
+  const { X, card, pop, actions } = load();
+  card.natural = 150;
+  X.open(pop, card);
+  X.place(line(560)); // 218px below the line: it opens below
+  assert.equal(X.side(), "below");
+  const top = topOf(pop);
+  X.hold(true);
+  card.natural = 420; // the fix step: taller than the room below
+  X.repaint();
+  X.place(line(560));
+  assert.equal(X.side(), "below", "it does not move out from under the pointer");
+  assert.equal(topOf(pop), top);
+  assert.equal(card.style.maxHeight, `${218 - 8}px`);
+  assert.equal(card.style.overflowY, "auto", "capped, the card scrolls: nothing is out of reach");
+  assert.equal(actions.style.position, "sticky", "its buttons stay at the bottom while the rest scrolls");
+  assert.equal(actions.style.background, "#fff", "over the text scrolling under them");
+  // Back to a size that fits: no cap, no scroll, the buttons in the flow again.
+  card.natural = 150;
+  X.repaint();
+  X.place(line(560));
+  assert.equal(card.style.maxHeight, "");
+  assert.equal(card.style.overflowY, "hidden");
+  assert.equal(actions.style.position, "");
+});
+
+test("held, but its side can no longer show even a short card: it moves once, to the side with room", () => {
+  const { X, card, pop } = load();
+  card.natural = 60;
+  X.open(pop, card);
+  X.place(line(700)); // 78px below the line: a one-line card fits there
+  assert.equal(X.side(), "below");
+  X.hold(true);
+  card.natural = 420;
+  X.repaint();
+  X.place(line(700));
+  assert.equal(X.side(), "above", "70px is less than a card's minimum: staying would push its buttons off the screen");
+  assert.equal(card.style.maxHeight, "", "above, it fits whole");
+  // A scroll never moves it: only new content does.
+  X.place(line(690));
+  assert.equal(X.side(), "above");
 });
 
 test("a row of buttons wraps instead of being cut off at the card's edge", () => {

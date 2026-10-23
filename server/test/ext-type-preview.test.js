@@ -257,6 +257,7 @@ function loadGate({ features = { typePreview: true }, harness = null, respond = 
     function showTypePreview(key, job) { shown.push({ key, steps: job.steps.map((s) => s.action) }); return new Promise((r) => { answer = r; }); }
     function tpNotePress() {}
     function noteDocScroll() {} // the installer listens for scrolls (the "while the page scrolls" block)
+    ${slice("  function typedText(text", "  /* ── sentence boundaries")}
     ${slice("    /* ── editing the document ──", "    // (the bridge \"highlight in doc\" feature was removed")}
     ${slice("    if (FEATURES.typePreview) {", "    // ── widget UI ──")}
     ({
