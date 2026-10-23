@@ -70,6 +70,12 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   It is tallied `partial=`, and costs up to 1,500 more output tokens, which
   is why `WORST_CALL["/api/sources"]` is 6,500.
   Measure it with `eval/goldset/run-verify-prod.mjs --partial`.
+  **One fetch per page per search** (2026-10-22, Codex review S2,
+  `citeMeta.js` `sharedPages`): completing a source's citation fields and
+  reading it for its receipt share the page, and each cuts the body as it
+  always did. A source with no DOI and no PubMed id starts fetching as soon
+  as the model answers, beside Crossref. Each search's log line says
+  `pages=fetched:N,reads:M`. Nothing is shared between searches.
 - **The desktop gets the same receipts from its own route,
   `/api/verify-sources`** (2026-10-07; `lib/reasoning.js` `verifySources` →
   the same `lib/sourceVerify.js`, never a second verifier). The desktop sends

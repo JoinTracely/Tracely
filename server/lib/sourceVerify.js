@@ -41,7 +41,7 @@
  * 6,000, and 8,000 of its 48,000 input tokens are this call's). Latency: the reads share one VERIFY_DEADLINE_MS (4 s, from 3 s), so
  * the worst case adds one second plus the judge's larger input. Nothing here
  * throws. */
-import { safeFetch, decodeEntities, looksBlocked } from "./citeMeta.js";
+import { decodeEntities, looksBlocked, sharedPages, pageBody } from "./citeMeta.js";
 import { doiOf } from "./sourceEnrich.js";
 import { structuredCall } from "./llm.js";
 import { figuresShown } from "./claimFigures.js";
@@ -57,7 +57,6 @@ const MIN_TEXT_CHARS = 80;   // an abstract shorter than this is not one
 const MIN_PAGE_CHARS = 200;  // a page with less visible text is a shell, an app or a wall
 const MAX_PAGE_BYTES = 1_500_000;
 const API_UA = "Tracely/1.0 (mailto:hello@jointracely.com)";
-const PAGE_UA = "Mozilla/5.0 (compatible; Tracely/1.0; local fact-checker)";
 
 /* OpenAlex stores an abstract as {word: [positions]}. */
 export function abstractFromIndex(index) {
@@ -341,36 +340,6 @@ export function matchQuote(quote, passages) {
 
 /* ── reading ─────────────────────────────────────────────────────────────── */
 
-/* At most `cap` bytes of a body, then the stream is cancelled. */
-async function readCapped(res, cap) {
-  if (!res.body?.getReader) {
-    const t = await res.text();
-    return t.length > cap ? t.slice(0, cap) : t;
-  }
-  const reader = res.body.getReader();
-  const chunks = [];
-  let size = 0;
-  try {
-    while (size < cap) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      size += value.byteLength;
-    }
-  } finally {
-    reader.cancel().catch(() => {});
-  }
-  const buf = new Uint8Array(Math.min(size, cap));
-  let at = 0;
-  for (const c of chunks) {
-    const take = Math.min(c.byteLength, buf.length - at);
-    buf.set(c.subarray(0, take), at);
-    at += take;
-    if (at >= buf.length) break;
-  }
-  return new TextDecoder().decode(buf);
-}
-
 /* A PDF is out of scope here: a zero-dependency server has no parser for one,
  * so an open-access copy that is only a PDF leaves the abstract as the text,
  * and a source that is only a PDF is unread. */
@@ -399,16 +368,18 @@ function fetchFailure(err, signal) {
 /* A page's visible text, or "" when it cannot be read: not HTML, a bot wall
  * (citeMeta.js looksBlocked), an HTTP error, or almost no text. `why` says
  * which, for the read tally. */
-async function readPage(url, { signal, fetchImpl }) {
+async function readPage(url, { signal, pages }) {
   if (!/^https?:\/\//i.test(String(url ?? ""))) return { text: "", why: "no-text" };
   if (looksLikePdf(url)) return { text: "", why: "pdf" };
   try {
-    const res = await safeFetch(new URL(url), { signal, headers: { "User-Agent": PAGE_UA, Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5" } }, { fetchImpl });
-    const type = String(res.headers?.get?.("content-type") ?? "");
-    if (!res.ok) return { text: "", why: "http" };
-    if (type && !/html|xml|text/i.test(type)) return { text: "", why: /pdf/i.test(type) ? "pdf" : "not-html" };
-    const html = await readCapped(res, MAX_PAGE_BYTES);
-    if (looksBlocked(res.status, html, htmlTitle(html))) return { text: "", why: "blocked" };
+    // The search's shared fetch (citeMeta.js sharedPages): a page completing
+    // the citation already fetched is not fetched again.
+    const page = await pages.get(url, { signal });
+    if (!page.ok) return { text: "", why: "http" };
+    if (page.type && !/html|xml|text/i.test(page.type)) return { text: "", why: /pdf/i.test(page.type) ? "pdf" : "not-html" };
+    if (page.bodyError) return { text: "", why: fetchFailure(page.bodyError, signal) };
+    const html = pageBody(page, MAX_PAGE_BYTES, MAX_PAGE_BYTES);
+    if (looksBlocked(page.status, html, htmlTitle(html))) return { text: "", why: "blocked" };
     const text = pageText(html);
     return text.length >= MIN_PAGE_CHARS ? { text, why: null } : { text: "", why: "thin" };
   } catch (err) {
@@ -444,10 +415,15 @@ export function openAccessPage(work) {
 /* `onRead(i, { read, from, retracted })`, optional: called as each source's
  * reading settles, for the live search (POST /api/sources/stream). It only
  * watches — a throwing callback is ignored and changes nothing read.
- * `reads`: how many sources had each READ_OUTCOMES outcome. */
-export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onRead = null } = {}) {
+ * `reads`: how many sources had each READ_OUTCOMES outcome.
+ * `pages` (optional): the search's shared fetch (citeMeta.js sharedPages),
+ * so a page completing the citation already fetched is not fetched again.
+ * Without it, the pages are this call's own. */
+export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onRead = null, pages = null } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), deadlineMs);
+  const own = pages ? null : sharedPages({ fetchImpl });
+  const fetched = pages ?? own;
   const evidence = [];
   const retracted = [];
   const reads = {};
@@ -465,6 +441,7 @@ export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fe
     }));
   } finally {
     clearTimeout(timer);
+    own?.close();
   }
   return { evidence: evidence.sort((a, b) => a.i - b.i), retracted, reads };
 
@@ -494,7 +471,7 @@ export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fe
       // the abstract again, behind a wall).
       const tries = [...new Set([oa, texts.length ? "" : s.url].filter(Boolean))];
       for (const url of tries) {
-        const page = await readPage(url, { signal, fetchImpl });
+        const page = await readPage(url, { signal, pages: fetched });
         if (page.text) { texts.push({ from: "page", text: page.text }); break; }
         why = page.why;
       }
@@ -749,8 +726,8 @@ async function coverDetail({ claim, context, list, evidence, model, call, out })
  * `partial` (with `context`, the claim's paragraph): when the verdicts leave
  * nothing backing, look for a source that backs all but one small detail
  * (coverDetail). Never with a `correction`: a sentence flagged wrong is
- * corrected, not trimmed. */
-export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onProgress = null, partial = false, context = "" }) {
+ * corrected, not trimmed. `pages`: the search's shared fetch (gatherEvidence). */
+export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onProgress = null, partial = false, context = "", pages = null }) {
   const list = Array.isArray(sources) ? sources : [];
   // quoted: backs/contradicts whose quote was found; unquoted: whose quote was
   // not (fell to topic) — the number that says whether the rule is too strict.
@@ -771,7 +748,7 @@ export async function verifySources({ claim, correction, sources, model, call = 
   const reading = performance.now();
   try {
     const onRead = typeof onProgress === "function" ? (i, r) => onProgress({ type: "read", i, ...r }) : null;
-    ({ evidence, retracted: out.retracted, reads: out.reads } = await gatherEvidence(list, claim, { fetchImpl, deadlineMs, abstractOf, onRead }));
+    ({ evidence, retracted: out.retracted, reads: out.reads } = await gatherEvidence(list, claim, { fetchImpl, deadlineMs, abstractOf, onRead, pages }));
   } catch { /* nothing read */ }
   out.stages.read = since(reading);
   const read = new Set(evidence.map((e) => e.i));

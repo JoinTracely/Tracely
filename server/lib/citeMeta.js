@@ -605,6 +605,11 @@ function descriptionOf(page) {
  *  behind an HTML content type, is never held in memory whole. */
 async function readCapped(res, maxBytes) {
   if (!res.body?.getReader) return (await res.text()).slice(0, MAX_HTML_CHARS);
+  return new TextDecoder().decode(await readBytes(res, maxBytes)).slice(0, MAX_HTML_CHARS);
+}
+
+/** The body's first `maxBytes` bytes, then the stream is cancelled. */
+async function readBytes(res, maxBytes) {
   const reader = res.body.getReader();
   const chunks = [];
   let size = 0;
@@ -626,7 +631,94 @@ async function readCapped(res, maxBytes) {
     at += take;
     if (at >= buf.length) break;
   }
-  return new TextDecoder().decode(buf).slice(0, MAX_HTML_CHARS);
+  return buf;
+}
+
+/* ── one fetch per page per search (Codex review S2, 2026-10-22) ─────────
+ * A source search fetched a page twice: to complete its citation fields
+ * (fetchUrlMetadata, from factcheck.js completeSources) and then to read it
+ * for its receipt (sourceVerify.js readPage). Same URL, same user agent, a
+ * second or two apart. `sharedPages()` is one search's pages:
+ * - The first `get(url)` (or `start(url)`, which fetches for a reader still
+ *   to come) fetches it, through safeFetch so every hop is checked, and keeps
+ *   the body's first SHARED_PAGE_BYTES bytes. A later `get` of the same URL
+ *   in the same search gets the same answer.
+ * - `counts`: `fetched` pages and `reads` of them; a search saved
+ *   reads − fetched fetches.
+ * - Each reader cuts the body to its own limit and decodes it as it always
+ *   did (`pageBody`), so what each one reads is unchanged.
+ * - A reader's own deadline (`signal`) stops its waiting, never the fetch.
+ *   Completing gives up at 2.5 s, and a page still coming in is then read
+ *   by the verifier, whose deadline is later.
+ * - A body is read only for a type some reader uses (HTML, XML, text): the
+ *   metadata reader dropped any other, and the verifier never read one.
+ * - `close()` aborts whatever is left when the search ends. Nothing outlives
+ *   the search, and nothing is shared between searches. */
+export const SHARED_PAGE_BYTES = 1_500_000; // the larger reader's cap (sourceVerify.js MAX_PAGE_BYTES)
+const SHARED_PAGE_TIMEOUT_MS = 15_000; // fetchUrlMetadata's own limit
+export function sharedPages({ fetchImpl = globalThis.fetch } = {}) {
+  const ctrl = new AbortController();
+  const pages = new Map();
+  const counts = { fetched: 0, reads: 0 };
+  const load = async (href) => {
+    const res = await safeFetch(new URL(href), {
+      signal: AbortSignal.any([ctrl.signal, AbortSignal.timeout(SHARED_PAGE_TIMEOUT_MS)]),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Tracely/1.0; local fact-checker)", Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5" },
+    }, { fetchImpl });
+    const type = String(res.headers?.get?.("content-type") ?? "");
+    const page = { status: res.status, ok: res.ok, type, bytes: null, text: null, bodyError: null };
+    if (type && !/html|xml|text/i.test(type)) return page;
+    try {
+      if (res.body?.getReader) page.bytes = await readBytes(res, SHARED_PAGE_BYTES);
+      else page.text = await res.text();
+    } catch (err) {
+      page.bodyError = err;
+    }
+    return page;
+  };
+  const ensure = (url) => {
+    let href;
+    try { href = new URL(String(url ?? "").trim()).href; } catch (err) { return Promise.reject(err); }
+    let p = pages.get(href);
+    if (!p) {
+      counts.fetched += 1;
+      p = load(href);
+      p.catch(() => {}); // a reader may never come; its failure is theirs to see
+      pages.set(href, p);
+    }
+    return p;
+  };
+  return {
+    start(url) { ensure(url).catch(() => {}); },
+    get(url, { signal = null } = {}) {
+      counts.reads += 1;
+      return untilAborted(ensure(url), signal);
+    },
+    close() { ctrl.abort(); },
+    counts,
+  };
+}
+
+/* `promise`, or a rejection as soon as `signal` aborts, whichever is first. */
+function untilAborted(promise, signal) {
+  if (!signal) return promise;
+  const reason = () => signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+  if (signal.aborted) return Promise.reject(reason());
+  return new Promise((resolve, reject) => {
+    const stop = () => reject(reason());
+    signal.addEventListener("abort", stop, { once: true });
+    promise.then(
+      (v) => { signal.removeEventListener("abort", stop); resolve(v); },
+      (e) => { signal.removeEventListener("abort", stop); reject(e); },
+    );
+  });
+}
+
+/** A shared page's body as one reader always read it: its first `maxBytes`
+ *  bytes as UTF-8, then at most `maxChars` characters. "" with no body. */
+export function pageBody(page, maxBytes, maxChars = Infinity) {
+  if (page?.bytes) return new TextDecoder().decode(page.bytes.subarray(0, maxBytes)).slice(0, maxChars);
+  return String(page?.text ?? "").slice(0, maxChars);
 }
 
 /**
@@ -635,46 +727,59 @@ async function readCapped(res, maxBytes) {
  * CheckError (serialised verbatim to the client) for a bad URL, a missing
  * page, a bot wall or any other HTTP error — none of those is a citation.
  */
-export async function fetchUrlMetadata(raw, { now = new Date(), signal = null, fetchImpl = globalThis.fetch } = {}) {
+export async function fetchUrlMetadata(raw, { now = new Date(), signal = null, fetchImpl = globalThis.fetch, pages = null } = {}) {
   let u;
   try {
     u = new URL(String(raw ?? "").trim());
   } catch {
     throw new CheckError("bad_request", "That doesn't look like a URL");
   }
-  let res;
-  try {
-    // safeFetch: scheme, credentials, private-address and redirect checks on
-    // every hop. A caller's own deadline (the source search completes several
-    // pages under one 2.5 s budget) is honoured alongside this route's 15 s.
-    res = await safeFetch(u, {
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; Tracely/1.0; local fact-checker)" },
-    }, { fetchImpl });
-  } catch (e) {
-    if (e instanceof CheckError) throw e;
-    throw new CheckError("server", `Couldn't fetch that URL: ${e?.cause?.message ?? e?.message ?? e}`, { status: 502 });
+  const unfetched = (e) => (e instanceof CheckError ? e : new CheckError("server", `Couldn't fetch that URL: ${e?.cause?.message ?? e?.message ?? e}`, { status: 502 }));
+  const gone = (status) => new CheckError("bad_request", `That page returns ${status} — it doesn't seem to exist`);
+  let status, type, html = "";
+  if (pages) {
+    // A source search's shared fetch (sharedPages, above): the same page the
+    // verifier reads, fetched once. The body is cut exactly as below.
+    let shared;
+    try {
+      shared = await pages.get(u.href, { signal });
+    } catch (e) {
+      throw unfetched(e);
+    }
+    ({ status, type } = shared);
+    if (status === 404 || status === 410) throw gone(status);
+    if (!shared.bodyError) html = pageBody(shared, MAX_HTML_CHARS * 2, MAX_HTML_CHARS);
+  } else {
+    let res;
+    try {
+      // safeFetch: scheme, credentials, private-address and redirect checks on
+      // every hop. A caller's own deadline is honoured alongside this route's 15 s.
+      res = await safeFetch(u, {
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Tracely/1.0; local fact-checker)" },
+      }, { fetchImpl });
+    } catch (e) {
+      throw unfetched(e);
+    }
+    status = res.status;
+    if (status === 404 || status === 410) throw gone(status);
+    try {
+      html = await readCapped(res, MAX_HTML_CHARS * 2);
+    } catch { /* binary or unreadable body — fall through to URL-derived metadata */ }
+    type = String(res.headers?.get?.("content-type") ?? "");
   }
-  if (res.status === 404 || res.status === 410) {
-    throw new CheckError("bad_request", `That page returns ${res.status} — it doesn't seem to exist`);
-  }
-  let html = "";
-  try {
-    html = await readCapped(res, MAX_HTML_CHARS * 2);
-  } catch { /* binary or unreadable body — fall through to URL-derived metadata */ }
   // A PDF or an image has no <title> or <meta> to read, only bytes that can
   // look like tags.
-  const type = String(res.headers?.get?.("content-type") ?? "");
   if (type && !/html|xml/i.test(type)) html = "";
 
   const page = scanHtml(html);
   const rawTitle = clean((page.title ?? "").slice(0, 2000));
-  if (looksBlocked(res.status, html, rawTitle)) {
-    const why = BLOCK_STATUS.has(res.status) ? `HTTP ${res.status}` : "it answered with a bot check";
+  if (looksBlocked(status, html, rawTitle)) {
+    const why = BLOCK_STATUS.has(status) ? `HTTP ${status}` : "it answered with a bot check";
     throw new CheckError("server", `That site won't let Tracely read the page (${why}), so there is nothing reliable to cite from it — copy the details by hand, or pick another source.`, { status: 502 });
   }
-  if (res.status >= 400) {
-    throw new CheckError("server", `That page returns ${res.status} — Tracely couldn't read it. Try again later, or copy the details by hand.`, { status: 502 });
+  if (status >= 400) {
+    throw new CheckError("server", `That page returns ${status} — Tracely couldn't read it. Try again later, or copy the details by hand.`, { status: 502 });
   }
 
   const { title, publisher, ...optional } = extractCitationMeta(html, u.href, now, page);

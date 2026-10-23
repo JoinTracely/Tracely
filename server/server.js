@@ -1711,7 +1711,7 @@ const server = http.createServer(async (req, res) => {
       // line only — /api/sources is frozen. Each SOURCE carries its own
       // receipt (verified, readFrom, quote: additive optional fields,
       // lib/sourceVerify.js), and those do reach the client.
-      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, ...result } = answer;
+      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, pages, ...result } = answer;
       // For the log line only: what the tool billed and what the server filled
       // in afterwards — the two numbers that say what a search costs and
       // whether the citation fields are coming from pages or from us.
@@ -1725,7 +1725,9 @@ const server = http.createServer(async (req, res) => {
       const timing = { wait: waited, ...(stages ?? {}), total: Date.now() - started };
       const t = Object.entries(timing).map(([k, v]) => `${k}:${v}`).join(",");
       const r = Object.entries(reads ?? {}).map(([k, v]) => `${k}:${v}`).join(",") || "none";
-      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started} stages=${t} reads=${r}`);
+      // Pages fetched, and read: completing and the receipts share one fetch (Codex review S2).
+      const p = `fetched:${pages?.fetched ?? 0},reads:${pages?.reads ?? 0}`;
+      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started} stages=${t} reads=${r} pages=${p}`);
       const backed = result.sources.some((s) => s?.stance === "supports" && s?.verified === true);
       tallyStages(url.pathname, gate.pool, timing, { reads, backed });
       // The tool fee is most of this route's cost and is invisible in the
