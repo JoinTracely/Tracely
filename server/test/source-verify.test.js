@@ -15,6 +15,7 @@ import { setHostResolver } from "../lib/citeMeta.js";
 import {
   abstractFromIndex, pageText, claimTerms, abstractSettles, selectExcerpts, foldForMatch, matchQuote, openAccessPage,
   gatherEvidence, applyVerdicts, markUnverified, verifySources, VERIFY_SYSTEM, VERIFY_SCHEMA, OPENALEX_WORK, EXCERPT_CHARS, EXCERPT_WINDOWS, MAX_QUOTE_CHARS,
+  READ_OUTCOMES,
 } from "../lib/sourceVerify.js";
 
 // A stubbed fetch never needs DNS; safeFetch still checks every host, against this.
@@ -218,13 +219,58 @@ test("every source is read — the abstract for a DOI, else the page; a wall, an
     "paywall.example": { status: 403, text: "denied" },
     "cf.example": { text: `<html><head><title>Just a moment...</title></head><body>${FILLER}</body></html>` },
   });
-  const { evidence, retracted } = await gatherEvidence(sources, CLAIM, { fetchImpl, deadlineMs: 2000 });
+  const { evidence, retracted, reads } = await gatherEvidence(sources, CLAIM, { fetchImpl, deadlineMs: 2000 });
   assert.deepEqual(evidence.map((e) => e.i), [0, 1, 2], "the context source is read too; the walled, challenged and PDF ones are not");
   assert.deepEqual(retracted, []);
+  assert.deepEqual(reads, { abstract: 1, page: 2, http: 1, blocked: 1, pdf: 1 }, "each source's outcome, counted");
   assert.equal(evidence[0].passages[0].from, "abstract");
   assert.match(evidence[0].passages[0].text, /austerity cuts to youth services/);
   assert.ok(evidence[1].passages.some((p) => /fell by 73%/.test(p.text)));
   assert.ok(!fetchImpl.hits.some((u) => u.includes("files.example")), "a PDF is never fetched");
+});
+
+test("why a source went unread is counted by kind, from a fixed list (Codex review S1)", async () => {
+  const one = async (source, fetchImpl, opts = {}) => (await gatherEvidence([source], CLAIM, { fetchImpl, deadlineMs: 2000, ...opts })).reads;
+  const page = (url) => ({ title: "T", url, stance: "context" });
+  assert.deepEqual(await one(page("https://api.example/x"), fakeFetch({ "api.example": { type: "application/json", text: "{}" } })), { "not-html": 1 });
+  assert.deepEqual(await one(page("https://pdfs.example/x"), fakeFetch({ "pdfs.example": { type: "application/pdf" } })), { pdf: 1 }, "a PDF by its content type, not only its address");
+  assert.deepEqual(await one(page("https://short.example/x"), fakeFetch({ "short.example": { text: "<p>Hi.</p>" } })), { thin: 1 });
+  assert.deepEqual(await one({ title: "No link", url: "", stance: "context" }, fakeFetch({})), { "no-text": 1 });
+  assert.deepEqual(await one(page("https://down.example/x"), async () => { throw new TypeError("fetch failed"); }), { network: 1 });
+  const hang = (url, init) => new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  assert.deepEqual(await one(page("https://slow.example/x"), hang, { deadlineMs: 30 }), { deadline: 1 });
+  assert.deepEqual(await one(page("https://doi.org/10.1234/gone"), fakeFetch({ [OPENALEX]: { json: { is_retracted: true } } })), { retracted: 1 });
+
+  const prev = setHostResolver(async (host) => (host === "private.example" ? [{ address: "10.0.0.7" }] : []));
+  try {
+    assert.deepEqual(await one(page("https://nowhere.example/x"), fakeFetch({})), { dns: 1 });
+    assert.deepEqual(await one(page("https://private.example/x"), fakeFetch({})), { refused: 1 });
+  } finally {
+    setHostResolver(prev);
+  }
+  for (const o of ["abstract", "page", "abstract+page", "retracted", "pdf", "not-html", "http", "blocked", "thin", "deadline", "dns", "refused", "network", "no-text"]) {
+    assert.ok(READ_OUTCOMES.includes(o), o);
+  }
+});
+
+test("verifySources times its read, judge and trim, and passes the read outcomes on", async () => {
+  const fetchImpl = fakeFetch({ "www.gov.uk/youth": { text: GOVUK }, "paywall.example": { status: 403 } });
+  const sources = [{ title: "GOV.UK", url: "https://www.gov.uk/youth", stance: "context" }, { title: "Walled", url: "https://paywall.example/x", stance: "context" }];
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const call = async (req) => {
+    await sleep(40);
+    return req.name === "verdicts" ? { parsed: { verdicts: [{ id: 0, verdict: "topic", quote: "" }] } } : { parsed: null };
+  };
+  const r = await verifySources({ claim: CLAIM, sources, model: "m", call, fetchImpl, partial: true, context: "" });
+  assert.deepEqual(r.reads, { page: 1, http: 1 });
+  assert.ok(r.stages.judge >= 30, `the judge call's time (${r.stages.judge} ms)`);
+  assert.ok(r.stages.trim >= 30, `nothing backed, so the detail check ran (${r.stages.trim} ms)`);
+  assert.ok(Number.isInteger(r.stages.read) && r.stages.read >= 0);
+
+  const failed = await verifySources({ claim: CLAIM, sources: [{ title: "GOV.UK", url: "https://www.gov.uk/youth", stance: "context" }], model: "m", fetchImpl,
+    call: async () => { await sleep(40); throw new Error("down"); } });
+  assert.ok(failed.stages.judge >= 30, "a failed judge call is timed too");
+  assert.equal(failed.stages.trim, 0);
 });
 
 test("a DOI whose abstract does not settle it: the open-access copy is read too, never a PDF", async () => {
@@ -379,7 +425,9 @@ test("wired: after the page lookups, billed with the search, retracted dropped, 
   assert.match(FACTCHECK, /usage: verified\.usage \? addUsage\(usage, verified\.usage\) : usage/);
   assert.match(FACTCHECK, /const gone = new Set\(verified\.retracted \?\? \[\]\);/);
   assert.match(SERVER, /answer = await findSources\(/);
-  assert.match(SERVER, /const \{ webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, \.\.\.result \} = answer;/, "the tallies never reach the extension");
+  assert.match(SERVER, /const \{ webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, \.\.\.result \} = answer;/, "the tallies never reach the extension");
+  assert.match(SERVER, /tallyStages\(url\.pathname, gate\.pool, timing, \{ reads, backed \}\);/, "each search's stages go to the hourly lines");
+  assert.match(SERVER, /const \{ tally, stages, reads, \.\.\.result \} = await appCall\(gate, \{\s+task: "verify",/, "nor the desktop's");
   assert.match(SERVER, /verified=\$\{verified\?\.checked \?\? 0\}\/\$\{verified\?\.changed \?\? 0\} quoted=\$\{verified\?\.quoted \?\? 0\} unquoted=\$\{verified\?\.unquoted \?\? 0\} figures=\$\{verified\?\.figures \?\? 0\} partial=\$\{verified\?\.partial \?\? 0\} unread=\$\{verified\?\.unread \?\? 0\} retracted=\$\{retracted \?\? 0\}/);
   assert.match(FACTCHECK, /partial: true, context: context \? claimWindow\(context, claim\) : "" \}\)/, "the search asks for the detail check, with the claim's paragraph");
 });

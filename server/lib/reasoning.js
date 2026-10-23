@@ -537,7 +537,8 @@ export async function verifySources({ claim, context, sources, partial, model, c
   }
   const gone = new Set(out.retracted ?? []);
   const receipts = list.map((s, i) => receiptOf(input.sources[i].id, s, gone.has(s)));
-  return { receipts, model, usage: out.usage ?? zeroUsage(), tally: tallyOf(receipts, { unquoted: out.unquoted ?? 0, figures: out.figures ?? 0, partial: out.partial ?? 0 }) };
+  // `tally`, `stages` and `reads` are the route's log lines, never the response.
+  return { receipts, model, usage: out.usage ?? zeroUsage(), tally: tallyOf(receipts, { unquoted: out.unquoted ?? 0, figures: out.figures ?? 0, partial: out.partial ?? 0 }), stages: out.stages, reads: out.reads };
 }
 
 /* ── mocks: deterministic, same shapes, no key ─────────────────────────── */

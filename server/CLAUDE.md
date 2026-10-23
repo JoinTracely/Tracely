@@ -230,6 +230,18 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
     what a cache shared between people would save. `demo-sources` (the
     try-out's one sample essay) and `sources-correction` are kept apart. A
     deploy forgets what was seen, so read it as a lower bound.
+  - **`[tracely] stages route=… pool=…`** (Codex review S1,
+    `lib/stageTally.js`): where a source search's time went, each stage's
+    p50/p95/max in ms. The stages are `wait` (the body, the account, the
+    gates), `search` (the model's web search), `complete` (the citation
+    fields), `read`, `judge`, `trim` and `total`. `backed` counts searches
+    that ended with a backing source, so cost per backed answer is the usage
+    line's cost over it. **`[tracely] reads`** counts why sources went unread
+    (`READ_OUTCOMES` in `sourceVerify.js`: pdf, blocked, http, deadline, dns
+    and the rest). Each search's own line carries `stages=` and `reads=` too.
+    `/api/verify-sources` reports the verifier's three stages. Numbers and
+    fixed labels only, never a URL. On SIGTERM these lines print after the
+    drain, so the searches that finish during it are counted.
   - **`TRACELY_PROMPT_CACHE_KEY=caller`** (off by default) sends a hashed
     per-caller `prompt_cache_key` on `/api/check`. It changes where a call
     runs, never what it answers. It is off because a cache write costs more
