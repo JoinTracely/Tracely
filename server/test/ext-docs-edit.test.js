@@ -139,7 +139,9 @@ class FakeDocs {
   onEvent(ev) {
     if (ev.type === "copy") {
       const { start, end } = (this.lateCopyMs ? this.copySel : this.sel)[0];
-      ev.clipboardData.setData("text/plain", (this.copyText ?? this.T.slice(start, end)) + (this.copySuffix ?? ""));
+      // copyBreak: how this copy writes a line break, if not as one "\n" ("\r\n", a blank line).
+      const raw = this.copyText ?? this.T.slice(start, end);
+      ev.clipboardData.setData("text/plain", (this.copyBreak ? raw.replace(/\n/g, this.copyBreak) : raw) + (this.copySuffix ?? ""));
       ev.preventDefault();
       return false;
     }
@@ -831,6 +833,35 @@ test("engine: a selection that never lands, or a copy that reads other words, is
   assert.equal(stuck.pastes.length + other.pastes.length, 0);
   assert.deepEqual(other.sel, [{ start: 1, end: 1 }], "the writer's caret is back where it was");
   assert.equal(other.body(), S);
+});
+
+/* Owner, 2026-10-23: "Remove from list" on a Works Cited entry cited nowhere
+ * failed `check: copy` four times out of four (Settings → Help → Copy
+ * diagnostics), the selection, text and plan checks all passing. It is the
+ * one edit that selects across a line break: deleteEditFor keeps the line
+ * above and replaces it and the entry with that line alone. Docs' copy can
+ * write the break otherwise than getText's one "\n". */
+test("engine: removing a reference entry selects across the line above, however Docs' copy writes that line break", async () => {
+  const body = "Peace (Lee).\nWorks Cited\nLee, Ann. Title.\nPark, Ben. Other.";
+  const op = { find: "Title.\nPark, Ben. Other.", replacement: "Title." }; // deleteEditFor's plan for "Park, Ben. Other."
+  for (const [what, copyBreak] of [["one \\n, as getText has it", null], ["\\r\\n", "\r\n"], ["a blank line between paragraphs", "\n\n"]]) {
+    const docs = new FakeDocs(body);
+    docs.copyBreak = copyBreak;
+    const r = await loadHook({ docs }).call("replace", op);
+    assert.equal(r.ok, true, `${what}: ${JSON.stringify(r)}`);
+    assert.equal(docs.body(), "Peace (Lee).\nWorks Cited\nLee, Ann. Title.", what);
+    assert.equal(docs.pastes.length, 1, what);
+  }
+  // Other words are still refused, and say how they differ, with no text.
+  // The selection is planned from the line above's full stop: ".\nPark, Ben. Other."
+  const other = new FakeDocs(body, { copyText: ".\r\nPark, Ben. Another." });
+  const r = await loadHook({ docs: other }).call("replace", op);
+  assert.deepEqual([r.ok, r.reason, r.check], [false, "selection-mismatch", "copy"]);
+  assert.equal(other.pastes.length, 0, "nothing pasted");
+  assert.equal(other.body(), body);
+  assert.deepEqual(r.shape, { gotLen: 21, wantLen: 19, gotBreaks: 2, wantBreaks: 1, at: 13, gotIs: "letter", wantIs: "letter" },
+    "the break is folded away; the words part at \"Another\"/\"Other\"");
+  assert.ok(!/Title|Park|Other|Another/.test(JSON.stringify(r.shape)), "the shape holds no word of the document");
 });
 
 test("engine (no text API): a click a character off is moved onto the sentence with the keys — spaces kept, and the read-back follows", async () => {

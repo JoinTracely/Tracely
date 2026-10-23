@@ -9766,7 +9766,8 @@
           // rather than guessed at. No document text: the action, the path
           // and the hook's answer only.
           console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"}${r.check ? `: ${r.check}` : ""})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}${r.endShape ? ` · ${r.endShape}` : ""}`);
-          if (typeof noteDiag === "function") noteDiag({ edit: key.split(":")[0], action: payload.action, via: r.via ?? path, ok: Boolean(r.ok), ...(r.ok ? {} : { reason: r.reason ?? "?", ...(r.check ? { check: r.check } : {}) }) });
+          // `shape`: how Docs' copy differed when that check failed (docs-hook.js copyShape: lengths and kinds of character, no text).
+          if (typeof noteDiag === "function") noteDiag({ edit: key.split(":")[0], action: payload.action, via: r.via ?? path, ok: Boolean(r.ok), ...(r.ok ? {} : { reason: r.reason ?? "?", ...(r.check ? { check: r.check } : {}), ...(r.shape ? { shape: r.shape } : {}) }) });
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
           if (r.rollbackOnly) rollbackOnly = true;

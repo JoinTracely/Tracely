@@ -792,6 +792,24 @@ A refusal names the check that failed (`check`: selection, text, copy or
 plan) in the console line `[tracely] edit …`. Tests:
 `server/test/ext-docs-edit.test.js`.
 
+**Copy across a line break** (2.21.72). Owner, 2026-10-23: "Remove from list"
+on a reference cited nowhere failed every time. His Copy diagnostics showed
+`check: copy` four times out of four, with the selection, text and plan
+checks passing. It is the one edit whose selection crosses a line break:
+`deleteEditFor` keeps the line above and replaces it plus the entry with that
+line alone. Docs' copy can write that break otherwise than `getText()`'s one
+`\n`.
+- **The copy check now compares with each run of line breaks as one**
+  (`lineFold` in `docs-hook.js`). The words, in order, must still match
+  exactly.
+- **A copy that still differs reports its `shape`** (`copyShape`): lengths,
+  break counts, and the kind of character each side has where they part. It
+  holds no text, and it goes into Copy diagnostics (`noteDiag`), so the next
+  report says exactly how.
+
+How real Docs writes the break was not observed: the fix covers `\r\n` and
+a blank line.
+
 ## Kinds of writing, and how each is cited
 
 Since 2.21.35 (owner, 2026-10-09: "make it extremely good at type of
