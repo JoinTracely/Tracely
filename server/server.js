@@ -21,6 +21,7 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, reco
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, reservedMicroCents, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { tallyCall, takeUsageLines, tallyCache } from "./lib/usageTally.js";
 import { tallyStages, takeStageLines } from "./lib/stageTally.js";
+import { once as onceInFlight, workKey, takeJoinLines } from "./lib/inFlight.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, KIND_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
@@ -993,7 +994,7 @@ function promptCacheKey(gate) {
 // Once an hour, what the charged calls cost by route, cache reads and writes
 // included (lib/usageTally.js), and how long each stage of a source search
 // took (lib/stageTally.js).
-const hourlyLines = () => [...takeUsageLines(), ...takeRepeatLines(), ...takeStageLines()];
+const hourlyLines = () => [...takeUsageLines(), ...takeRepeatLines(), ...takeStageLines(), ...takeJoinLines()];
 setInterval(() => { for (const line of hourlyLines()) console.log(line); }, 3_600_000).unref?.();
 
 /* The app routes' gate: the same shape as spendGate, over the APP pool and
@@ -1194,8 +1195,14 @@ const SOURCE_QUOTA = {
  * read, because the key is the model that would run. The hold rides on the
  * gate and the central handler releases it in its `finally`, after a failed
  * call's billed cost is charged — so no admission can see the allowance with
- * that cost neither held nor spent. */
-async function appCall(gate, { task, route = task, requested, effort = undefined, cache = null, webSearchCalls = 0, quota: meter = AI_QUOTA, promptBytes = 0, run }) {
+ * that cost neither held nor spent.
+ *
+ * `coalesce` (optional): the request's exact effective input. While the same
+ * caller's identical request runs (same route, model, effort and input), this
+ * one waits for it and is answered with its result, uncounted and uncharged
+ * (lib/inFlight.js, Codex review S3); `gate.joined` then says so. Only after
+ * the cache, which answers first, and never for an address-only caller. */
+async function appCall(gate, { task, route = task, requested, effort = undefined, cache = null, webSearchCalls = 0, quota: meter = AI_QUOTA, promptBytes = 0, coalesce = null, run }) {
   const hosted = gate.ent.enforced;
   const hold = hosted ? admitThorough(gate, route, requested, promptBytes) : null;
   if (hold) gate.thoroughHold = hold;
@@ -1213,14 +1220,18 @@ async function appCall(gate, { task, route = task, requested, effort = undefined
     tallyCache(cache.kind, Boolean(hit)); // the hourly "[tracely] cache" line
     if (hit) return hit;
   }
-  const quota = meter.check(gate.ent, gate.callerId);
-  if (!quota.allowed) throw meter.refused(quota, gate.ent, gate.callerId);
-  meter.record(gate.ent, gate.callerId);
-  const result = await run(model, choice.effort, choice.maxTokens);
-  const searches = typeof webSearchCalls === "function" ? webSearchCalls(result) : webSearchCalls;
-  chargeCall(gate, { model: result?.model ?? model, usage: result?.usage, webSearchCalls: searches, pool: "app" });
-  if (cache && !MOCK) cacheSet(cache.kind, key, result, { version: cache.version ?? 1 });
-  return result;
+  const flight = coalesce == null ? null : workKey(gate.callerId, route, [model, choice.effort ?? null, choice.maxTokens ?? null, coalesce]);
+  return onceInFlight(flight, gate.route ?? route, async () => {
+    // The leader only: a joiner is neither counted nor charged.
+    const quota = meter.check(gate.ent, gate.callerId);
+    if (!quota.allowed) throw meter.refused(quota, gate.ent, gate.callerId);
+    meter.record(gate.ent, gate.callerId);
+    const result = await run(model, choice.effort, choice.maxTokens);
+    const searches = typeof webSearchCalls === "function" ? webSearchCalls(result) : webSearchCalls;
+    chargeCall(gate, { model: result?.model ?? model, usage: result?.usage, webSearchCalls: searches, pool: "app" });
+    if (cache && !MOCK) cacheSet(cache.kind, key, result, { version: cache.version ?? 1 });
+    return result;
+  }, { onJoin: () => { gate.joined = true; } });
 }
 
 /* /api/entitlement's OPTIONAL fields (hosted only — a local server meters
@@ -2172,16 +2183,19 @@ const server = http.createServer(async (req, res) => {
         task: "verify",
         route: "verifySources",
         requested: body.model,
+        // Two of the desktop's surfaces can open the same list at once: one judge call for both (Codex review S3).
+        coalesce: input,
         run: (model) => reasoning.verifySources({ ...input, model }),
       });
       Object.assign(trace, { model: result.model });
       // One line, no text (PRIVACY.md: routes and outcomes only): how many of
       // the list were read and what they said — the number that says whether
       // receipts are working.
-      console.log(`[tracely] /api/verify-sources ${result.model} sources=${input.sources.length} read=${tally.read} backs=${tally.backs} contradicts=${tally.contradicts} topic=${tally.topic} unread=${tally.unread} retracted=${tally.retracted} unquoted=${tally.unquoted} figures=${tally.figures} partial=${tally.partial} ms=${Date.now() - started}`);
+      console.log(`[tracely] /api/verify-sources ${result.model} sources=${input.sources.length} read=${tally.read} backs=${tally.backs} contradicts=${tally.contradicts} topic=${tally.topic} unread=${tally.unread} retracted=${tally.retracted} unquoted=${tally.unquoted} figures=${tally.figures} partial=${tally.partial} ms=${Date.now() - started}${gate.joined ? " joined=1" : ""}`);
       // The verifier's stages (no search, no completing: the desktop sends
-      // the sources) and read outcomes, for lib/stageTally.js.
-      tallyStages("/api/verify-sources", gate.pool, { wait: waited, ...(stages ?? {}), total: Date.now() - started }, { reads, backed: tally.backs > 0 });
+      // the sources) and read outcomes, for lib/stageTally.js. A request that
+      // joined another's run ran no stages of its own.
+      if (!gate.joined) tallyStages("/api/verify-sources", gate.pool, { wait: waited, ...(stages ?? {}), total: Date.now() - started }, { reads, backed: tally.backs > 0 });
       json(res, 200, result, cors);
       return;
     }

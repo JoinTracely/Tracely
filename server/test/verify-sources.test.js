@@ -256,6 +256,8 @@ globalThis.fetch = async (url, init = {}) => {
   const input = JSON.stringify(body.input);
   const tag = (/TAG-([\\w-]+)/.exec(input) || [])[1] || null;
   appendFileSync(process.env.TRACELY_TEST_OPENAI_LOG, JSON.stringify({ tag, model: body.model, effort: body.reasoning?.effort ?? null, maxTokens: body.max_output_tokens ?? null, schema: body.text?.format?.name ?? null }) + "\\n");
+  // A "slow" list takes a moment, so two requests for it overlap (the in-flight tests).
+  if (tag && tag.startsWith("slow")) await new Promise((r) => setTimeout(r, 400));
   const verdicts = [{ id: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }, { id: 1, verdict: "topic", quote: "" }];
   return new Response(JSON.stringify({ status: "completed", model: body.model, usage: { input_tokens: 4000, output_tokens: 600 }, output_text: JSON.stringify({ verdicts }) }), { status: 200, headers: { "Content-Type": "application/json" } });
 };
@@ -362,6 +364,43 @@ test.describe("over HTTP on a hosted server", () => {
       assert.equal(r.body.error.kind, "bad_request");
     }
     assert.equal(usage("user:u-free-badbody", "ai"), before);
+  });
+
+  // Codex review S3 (lib/inFlight.js): the editor and Screen Watch can open
+  // the same list at once. One judge call answers both, and one AI action
+  // is spent, for the same caller only.
+  test("the same caller's identical list, asked twice at once: one judge call, one AI action, the same answer", async () => {
+    const [a, b] = await Promise.all([1, 2].map(() => call("/api/verify-sources", { body: LIST("slow-same"), token: "tok-free-joiner" })));
+    assert.equal(a.status, 200, JSON.stringify(a.body));
+    assert.equal(b.status, 200, JSON.stringify(b.body));
+    assert.deepEqual(b.body, a.body);
+    assert.equal(openaiLog("slow-same").length, 1, "one judge call");
+    assert.equal(usage("user:u-free-joiner", "ai"), 1, "one AI action");
+    assert.match(S.log(), /\/api\/verify-sources gpt-5\.6-luna sources=2 .* joined=1/, "the joiner's line says it joined");
+    // Asked again once the first has finished: a fresh run, as before.
+    const c = await call("/api/verify-sources", { body: LIST("slow-same"), token: "tok-free-joiner" });
+    assert.equal(c.status, 200);
+    assert.equal(openaiLog("slow-same").length, 2, "nothing is kept once the run is over");
+  });
+
+  test("never across callers, different lists, or an address-only caller", async () => {
+    const two = await Promise.all(["tok-free-one", "tok-free-two"].map((token) => call("/api/verify-sources", { body: LIST("slow-two-users"), token })));
+    assert.deepEqual(two.map((r) => r.status), [200, 200]);
+    assert.equal(openaiLog("slow-two-users").length, 2, "two people, two runs");
+    assert.deepEqual([usage("user:u-free-one", "ai"), usage("user:u-free-two", "ai")], [1, 1]);
+
+    await Promise.all(["slow-list-a", "slow-list-b"].map((tag) => call("/api/verify-sources", { body: LIST(tag), token: "tok-free-lists" })));
+    assert.deepEqual([openaiLog("slow-list-a").length, openaiLog("slow-list-b").length], [1, 1]);
+    assert.equal(usage("user:u-free-lists", "ai"), 2, "two lists, two actions");
+
+    // Signed out, the install id is the caller: it joins like an account.
+    const inst = await Promise.all([1, 2].map(() => call("/api/verify-sources", { body: LIST("slow-install"), headers: { "X-Tracely-Install": "install-joiner-1" } })));
+    assert.deepEqual(inst.map((r) => r.status), [200, 200]);
+    assert.equal(openaiLog("slow-install").length, 1);
+    // No account and no install id: only the address, which can be many people. Never joined.
+    const addr = await Promise.all([1, 2].map(() => call("/api/verify-sources", { body: LIST("slow-addr") })));
+    assert.deepEqual(addr.map((r) => r.status), [200, 200]);
+    assert.equal(openaiLog("slow-addr").length, 2);
   });
 
   test("the extension cannot call it: a chrome-extension origin is refused", async () => {

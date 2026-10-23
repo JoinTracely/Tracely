@@ -92,7 +92,14 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   back to its unchecked list. Why user-triggered: it is a paid call, and the
   desktop's passive Screen Watch never makes one unasked. `context` is
   accepted and not sent to the judge (VERIFY_SYSTEM is measured on the claim
-  alone). Tests: `test/verify-sources.test.js`, `test/boundary.test.js`,
+  alone). **The same list from the same caller, twice at once** (the editor
+  and Screen Watch can both open it) is judged once (2026-10-22, Codex
+  review S3, `lib/inFlight.js` via `appCall`'s `coalesce`). The first
+  request is charged and spends the AI action. The one that joined spends
+  neither, its log line says `joined=1`, and a failure reaches it without
+  the billing tag. It never applies across callers or to an address-only
+  caller. The hourly `[tracely] joined` line counts it, to show whether
+  other routes are worth the same. Tests: `test/verify-sources.test.js`, `test/boundary.test.js`,
   `test/mirror-contracts.test.js`.
 - **`server/lib/reasoning.js`** is the desktop's reasoning, one export per
   route, on the relay's request/response contract — which is why the desktop's
