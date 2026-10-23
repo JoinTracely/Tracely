@@ -376,20 +376,43 @@ async function readCapped(res, cap) {
  * and a source that is only a PDF is unread. */
 const looksLikePdf = (u) => /\.pdf(?:$|[?#])|\/pdf(?:\/|$|[?#])/i.test(String(u ?? ""));
 
+/* Why a source was read or not, one per source (Codex review S1, 2026-10-22):
+ * counted by the hour (lib/stageTally.js), never with its URL. Read: which
+ * texts it was read from. Unread: the last thing that failed. */
+export const READ_OUTCOMES = [
+  "abstract", "page", "abstract+page", // read
+  "retracted", // dropped, not read
+  "pdf", "not-html", "http", "blocked", "thin", "deadline", "dns", "refused", "redirects", "network", "no-text", "error",
+];
+/* A failed fetch, by kind: the deadline (the abort fired), a host that does
+ * not resolve, an address safeFetch refuses (private, a password, not http),
+ * a redirect loop, anything else. */
+function fetchFailure(err, signal) {
+  if (signal?.aborted) return "deadline";
+  const msg = String(err?.message ?? "");
+  if (/does not resolve/.test(msg)) return "dns";
+  if (/too many redirects/.test(msg)) return "redirects";
+  if (err?.kind === "bad_request") return "refused";
+  return "network";
+}
+
 /* A page's visible text, or "" when it cannot be read: not HTML, a bot wall
- * (citeMeta.js looksBlocked), an HTTP error, or almost no text. */
+ * (citeMeta.js looksBlocked), an HTTP error, or almost no text. `why` says
+ * which, for the read tally. */
 async function readPage(url, { signal, fetchImpl }) {
-  if (!/^https?:\/\//i.test(String(url ?? "")) || looksLikePdf(url)) return "";
+  if (!/^https?:\/\//i.test(String(url ?? ""))) return { text: "", why: "no-text" };
+  if (looksLikePdf(url)) return { text: "", why: "pdf" };
   try {
     const res = await safeFetch(new URL(url), { signal, headers: { "User-Agent": PAGE_UA, Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5" } }, { fetchImpl });
     const type = String(res.headers?.get?.("content-type") ?? "");
-    if (!res.ok || (type && !/html|xml|text/i.test(type))) return "";
+    if (!res.ok) return { text: "", why: "http" };
+    if (type && !/html|xml|text/i.test(type)) return { text: "", why: /pdf/i.test(type) ? "pdf" : "not-html" };
     const html = await readCapped(res, MAX_PAGE_BYTES);
-    if (looksBlocked(res.status, html, htmlTitle(html))) return "";
+    if (looksBlocked(res.status, html, htmlTitle(html))) return { text: "", why: "blocked" };
     const text = pageText(html);
-    return text.length >= MIN_PAGE_CHARS ? text : "";
-  } catch {
-    return "";
+    return text.length >= MIN_PAGE_CHARS ? { text, why: null } : { text: "", why: "thin" };
+  } catch (err) {
+    return { text: "", why: fetchFailure(err, signal) };
   }
 }
 
@@ -420,18 +443,22 @@ export function openAccessPage(work) {
  * /api/sources passes none and is unchanged. */
 /* `onRead(i, { read, from, retracted })`, optional: called as each source's
  * reading settles, for the live search (POST /api/sources/stream). It only
- * watches — a throwing callback is ignored and changes nothing read. */
+ * watches — a throwing callback is ignored and changes nothing read.
+ * `reads`: how many sources had each READ_OUTCOMES outcome. */
 export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onRead = null } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), deadlineMs);
   const evidence = [];
   const retracted = [];
+  const reads = {};
   const signal = ctrl.signal;
   const told = (i, r) => { if (typeof onRead === "function") { try { onRead(i, r); } catch { /* a watcher never changes the reading */ } } };
   try {
     await Promise.allSettled((Array.isArray(sources) ? sources : []).map(async (s, i) => {
       if (!s || typeof s !== "object") return;
-      try { await readOne(s, i); } finally {
+      let outcome = "error";
+      try { outcome = await readOne(s, i); } finally {
+        reads[outcome] = (reads[outcome] ?? 0) + 1;
         const got = evidence.find((e) => e.i === i) ?? null;
         told(i, { read: Boolean(got), from: got?.passages?.[0]?.from ?? null, retracted: retracted.includes(s) });
       }
@@ -439,21 +466,23 @@ export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fe
   } finally {
     clearTimeout(timer);
   }
-  return { evidence: evidence.sort((a, b) => a.i - b.i), retracted };
+  return { evidence: evidence.sort((a, b) => a.i - b.i), retracted, reads };
 
+  /* Returns the source's READ_OUTCOMES outcome. */
   async function readOne(s, i) {
     const texts = [];
     const doi = doiOf(s);
     let oa = "";
+    let why = "no-text"; // nothing to try: no abstract and no page
     if (doi) {
       try {
         const res = await fetchImpl(OPENALEX_WORK + encodeURIComponent(doi), { signal, headers: { "User-Agent": API_UA, Accept: "application/json" } });
         const work = res.ok ? await res.json() : null;
-        if (work?.is_retracted === true) { retracted.push(s); return; }
+        if (work?.is_retracted === true) { retracted.push(s); return "retracted"; }
         const abstract = abstractFromIndex(work?.abstract_inverted_index);
         if (abstract.length >= MIN_TEXT_CHARS) texts.push({ from: "abstract", text: abstract });
         oa = openAccessPage(work);
-      } catch { /* fall through to the page */ }
+      } catch (err) { why = fetchFailure(err, signal); /* fall through to the page */ }
     }
     if (!texts.length && typeof abstractOf === "function") {
       const own = String(abstractOf(s) ?? "").replace(/\s+/g, " ").trim();
@@ -465,12 +494,15 @@ export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fe
       // the abstract again, behind a wall).
       const tries = [...new Set([oa, texts.length ? "" : s.url].filter(Boolean))];
       for (const url of tries) {
-        const text = await readPage(url, { signal, fetchImpl });
-        if (text) { texts.push({ from: "page", text }); break; }
+        const page = await readPage(url, { signal, fetchImpl });
+        if (page.text) { texts.push({ from: "page", text: page.text }); break; }
+        why = page.why;
       }
     }
     const passages = selectExcerpts(texts, claim);
-    if (passages.reduce((n, p) => n + p.text.length, 0) >= MIN_TEXT_CHARS) evidence.push({ i, passages });
+    if (passages.reduce((n, p) => n + p.text.length, 0) < MIN_TEXT_CHARS) return texts.length ? "thin" : why;
+    evidence.push({ i, passages });
+    return texts.map((t) => t.from).join("+");
   }
 }
 
@@ -724,7 +756,10 @@ export async function verifySources({ claim, correction, sources, model, call = 
   // not (fell to topic) — the number that says whether the rule is too strict.
   // figures: backs dropped because the quote does not show the sentence's figure.
   // partial: sources that back all but one small detail (coverDetail).
-  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, partial: 0, unread: 0, retracted: [], usage: null };
+  // reads and stages (milliseconds: reading, the judge call, the detail
+  // check) are for the hourly stage lines (lib/stageTally.js), never a response.
+  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, partial: 0, unread: 0, retracted: [], usage: null, reads: {}, stages: { read: 0, judge: 0, trim: 0 } };
+  const since = (t) => Math.round(performance.now() - t);
   const unverify = (s) => {
     if (!s || typeof s !== "object") return;
     const before = s.stance;
@@ -733,20 +768,28 @@ export async function verifySources({ claim, correction, sources, model, call = 
     out.unread++;
   };
   let evidence = [];
+  const reading = performance.now();
   try {
     const onRead = typeof onProgress === "function" ? (i, r) => onProgress({ type: "read", i, ...r }) : null;
-    ({ evidence, retracted: out.retracted } = await gatherEvidence(list, claim, { fetchImpl, deadlineMs, abstractOf, onRead }));
+    ({ evidence, retracted: out.retracted, reads: out.reads } = await gatherEvidence(list, claim, { fetchImpl, deadlineMs, abstractOf, onRead }));
   } catch { /* nothing read */ }
+  out.stages.read = since(reading);
   const read = new Set(evidence.map((e) => e.i));
   const gone = new Set(out.retracted);
   list.forEach((s, i) => { if (!read.has(i) && !gone.has(s)) unverify(s); });
   if (!evidence.length) return out;
   if (typeof onProgress === "function") { try { onProgress({ type: "judging", count: evidence.length }); } catch { /* watching only */ } }
+  const judging = performance.now();
   try {
     const user = `CLAIM:\n${claim}\n` + (correction ? `\nPROPOSED CORRECTION:\n${correction}\n` : "") +
       evidence.map((e) => `\nSOURCE ${e.i}: ${list[e.i].title}\n` + e.passages.map((p) => `"""\n${p.text}\n"""`).join("\n")).join("\n") +
       `\n\nReturn one verdict per source id (${evidence.map((e) => e.i).join(", ")}).`;
-    const raw = await call({ model, system: VERIFY_SYSTEM, user, schema: VERIFY_SCHEMA, maxTokens: 2_000, what: "source check", name: "verdicts", effort: "low" });
+    let raw;
+    try {
+      raw = await call({ model, system: VERIFY_SYSTEM, user, schema: VERIFY_SCHEMA, maxTokens: 2_000, what: "source check", name: "verdicts", effort: "low" });
+    } finally {
+      out.stages.judge = since(judging);
+    }
     const t = applyVerdicts(list, evidence, raw?.parsed?.verdicts, claim);
     out.checked = evidence.length;
     out.changed += t.changed;
@@ -755,7 +798,11 @@ export async function verifySources({ claim, correction, sources, model, call = 
     out.figures = t.figures;
     out.unread += t.unjudged;
     out.usage = raw?.usage ?? null;
-    if (partial && !correction) await coverDetail({ claim, context, list, evidence, model, call, out });
+    if (partial && !correction) {
+      const trimming = performance.now();
+      await coverDetail({ claim, context, list, evidence, model, call, out });
+      out.stages.trim = since(trimming);
+    }
     return out;
   } catch (err) {
     // Read but never judged: unverified, like a source that could not be read.

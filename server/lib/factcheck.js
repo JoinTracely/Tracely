@@ -431,6 +431,12 @@ export async function findSources({ claim, correction, context, model, effort, m
     (context ? `\nDOCUMENT CONTEXT (excerpt):\n${claimWindow(context, claim)}\n` : "") +
     `\nFind sources, then output only the JSON object.`;
 
+  // How long each stage took, in milliseconds (Codex review S1): the search,
+  // completing the citation fields, then the verifier's read, judge and trim.
+  // For the route's log line and lib/stageTally.js, never the response.
+  const searching = performance.now();
+  const since = (t) => Math.round(performance.now() - t);
+
   // The web_search tool bills per call on top of tokens, which is why
   // findSources is the one path with a caller-side budget (search/webBudget).
   // `effort` undefined sends no reasoning effort — the vendor's default, which
@@ -454,6 +460,7 @@ export async function findSources({ claim, correction, context, model, effort, m
     // two or three, and the claim is the caller's text.
     maxSearches: 3,
   });
+  const search = since(searching);
 
   let sources = [];
   const jsonMatch = fullText.match(/\{[\s\S]*"sources"[\s\S]*\}/);
@@ -494,7 +501,9 @@ export async function findSources({ claim, correction, context, model, effort, m
   // the citation fields itself — Crossref for anything with a DOI, the page's
   // own metadata for the rest — under one short deadline, and drops a link
   // that answers 404. Off for a mock answer and whenever a caller asks.
+  const completing = performance.now();
   const { enriched, dropped, retracted: retractedByRecord } = enrich === false ? { enriched: 0, dropped: 0, retracted: 0 } : await completeSources(merged, { now: new Date() });
+  const complete = since(completing);
   tell({ type: "links", urls: merged.map((s) => String(s.url ?? "")) });
 
   // Then the receipts (lib/sourceVerify.js): read what every source itself
@@ -514,9 +523,10 @@ export async function findSources({ claim, correction, context, model, effort, m
 
   // `webSearchCalls`: what the search tool billed, per call — the route
   // records it and keeps it out of the response. `enriched`/`dropped`/
-  // `verified`/`retracted` are for the route's log line.
+  // `verified`/`retracted`/`stages`/`reads` are for the route's log lines.
   return { sources: merged, model: usedModel, usage: verified.usage ? addUsage(usage, verified.usage) : usage, webSearchCalls, webSearchActions, enriched, dropped, retracted,
-    verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, figures: verified.figures ?? 0, partial: verified.partial ?? 0, unread: verified.unread ?? 0 } };
+    verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, figures: verified.figures ?? 0, partial: verified.partial ?? 0, unread: verified.unread ?? 0 },
+    stages: { search, complete, read: verified.stages?.read ?? 0, judge: verified.stages?.judge ?? 0, trim: verified.stages?.trim ?? 0 }, reads: verified.reads ?? {} };
 }
 
 /* The part of the document the search should see: the claim's own

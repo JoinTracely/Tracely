@@ -20,6 +20,7 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, reco
          fairUseState, effectivePlan } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, reservedMicroCents, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { tallyCall, takeUsageLines, tallyCache } from "./lib/usageTally.js";
+import { tallyStages, takeStageLines } from "./lib/stageTally.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, KIND_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
@@ -989,8 +990,11 @@ function promptCacheKey(gate) {
   return `tc-${hashKey(`tracely-cache:${gate.callerId}`).slice(0, 32)}`;
 }
 
-// Once an hour, what the charged calls cost by route, cache reads and writes included (lib/usageTally.js).
-setInterval(() => { for (const line of [...takeUsageLines(), ...takeRepeatLines()]) console.log(line); }, 3_600_000).unref?.();
+// Once an hour, what the charged calls cost by route, cache reads and writes
+// included (lib/usageTally.js), and how long each stage of a source search
+// took (lib/stageTally.js).
+const hourlyLines = () => [...takeUsageLines(), ...takeRepeatLines(), ...takeStageLines()];
+setInterval(() => { for (const line of hourlyLines()) console.log(line); }, 3_600_000).unref?.();
 
 /* The app routes' gate: the same shape as spendGate, over the APP pool and
  * the app limiter. Budget first, then velocity, both before the body is read;
@@ -1265,11 +1269,13 @@ function shutDown(signal) {
   console.log(`[tracely] ${signal}: finishing ${inFlight} request(s) in flight, taking no more`);
   server.close();
   server.closeIdleConnections?.();
-  for (const line of [...takeUsageLines(), ...takeRepeatLines()]) console.log(line);
+  // The hour's lines go out last, so the requests that finish while draining
+  // are in them.
+  const report = () => { for (const line of hourlyLines()) console.log(line); };
   const until = Date.now() + DRAIN_MS;
   const wait = () => {
-    if (inFlight === 0) { console.log("[tracely] drained; exiting"); process.exit(0); }
-    if (Date.now() >= until) { console.log(`[tracely] drain deadline: ${inFlight} request(s) cut off`); process.exit(0); }
+    if (inFlight === 0) { report(); console.log("[tracely] drained; exiting"); process.exit(0); }
+    if (Date.now() >= until) { report(); console.log(`[tracely] drain deadline: ${inFlight} request(s) cut off`); process.exit(0); }
     setTimeout(wait, 50);
   };
   wait();
@@ -1278,6 +1284,9 @@ process.on("SIGTERM", () => shutDown("SIGTERM"));
 process.on("SIGINT", () => shutDown("SIGINT"));
 
 const server = http.createServer(async (req, res) => {
+  // When the request came in: a source search's `wait` stage (lib/stageTally.js)
+  // is from here to the search's start.
+  const arrived = performance.now();
   inFlight += 1;
   res.on("close", () => { inFlight -= 1; });
   if (draining) {
@@ -1654,6 +1663,7 @@ const server = http.createServer(async (req, res) => {
       globalCounter?.stamp(); // before the call, not after
       if (perCaller) callerSearchRate.stamp(who);
       const started = Date.now();
+      const waited = Math.round(performance.now() - arrived); // the body, the account, the gates
       // Hosted: the fast model at LOW effort (shared/plan.js ROUTE_EFFORT
       // sources, which halved the median search against the vendor default);
       // the client's model and effort are not read. Local: pickModel, and the client's
@@ -1701,7 +1711,7 @@ const server = http.createServer(async (req, res) => {
       // line only — /api/sources is frozen. Each SOURCE carries its own
       // receipt (verified, readFrom, quote: additive optional fields,
       // lib/sourceVerify.js), and those do reach the client.
-      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, ...result } = answer;
+      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, ...result } = answer;
       // For the log line only: what the tool billed and what the server filled
       // in afterwards — the two numbers that say what a search costs and
       // whether the citation fields are coming from pages or from us.
@@ -1710,7 +1720,14 @@ const server = http.createServer(async (req, res) => {
       // the tool fee is most of this route's cost, so the count is the number
       // to watch — 3-5 per answer was the 6-cent search of 2026-10-01.
       const actions = Object.entries(webSearchActions ?? {}).map(([k, v]) => `${k}=${v}`).join(",") || "none";
-      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
+      // Where the time went and why sources went unread (Codex review S1):
+      // milliseconds per stage, and a count per read outcome. Numbers only.
+      const timing = { wait: waited, ...(stages ?? {}), total: Date.now() - started };
+      const t = Object.entries(timing).map(([k, v]) => `${k}:${v}`).join(",");
+      const r = Object.entries(reads ?? {}).map(([k, v]) => `${k}:${v}`).join(",") || "none";
+      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started} stages=${t} reads=${r}`);
+      const backed = result.sources.some((s) => s?.stance === "supports" && s?.verified === true);
+      tallyStages(url.pathname, gate.pool, timing, { reads, backed });
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can
@@ -2148,7 +2165,8 @@ const server = http.createServer(async (req, res) => {
       // A bad body is a 400 BEFORE appCall counts it against the quota.
       const input = reasoning.verifySourcesInput(body);
       const started = Date.now();
-      const { tally, ...result } = await appCall(gate, {
+      const waited = Math.round(performance.now() - arrived);
+      const { tally, stages, reads, ...result } = await appCall(gate, {
         task: "verify",
         route: "verifySources",
         requested: body.model,
@@ -2159,6 +2177,9 @@ const server = http.createServer(async (req, res) => {
       // the list were read and what they said — the number that says whether
       // receipts are working.
       console.log(`[tracely] /api/verify-sources ${result.model} sources=${input.sources.length} read=${tally.read} backs=${tally.backs} contradicts=${tally.contradicts} topic=${tally.topic} unread=${tally.unread} retracted=${tally.retracted} unquoted=${tally.unquoted} figures=${tally.figures} partial=${tally.partial} ms=${Date.now() - started}`);
+      // The verifier's stages (no search, no completing: the desktop sends
+      // the sources) and read outcomes, for lib/stageTally.js.
+      tallyStages("/api/verify-sources", gate.pool, { wait: waited, ...(stages ?? {}), total: Date.now() - started }, { reads, backed: tally.backs > 0 });
       json(res, 200, result, cors);
       return;
     }
