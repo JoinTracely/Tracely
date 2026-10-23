@@ -425,9 +425,9 @@ test("wired: after the page lookups, billed with the search, retracted dropped, 
   assert.match(FACTCHECK, /usage: verified\.usage \? addUsage\(usage, verified\.usage\) : usage/);
   assert.match(FACTCHECK, /const gone = new Set\(verified\.retracted \?\? \[\]\);/);
   assert.match(SERVER, /answer = await findSources\(/);
-  assert.match(SERVER, /const \{ webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, \.\.\.result \} = answer;/, "the tallies never reach the extension");
+  assert.match(SERVER, /const \{ webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, pages, \.\.\.result \} = answer;/, "the tallies never reach the extension");
   assert.match(SERVER, /tallyStages\(url\.pathname, gate\.pool, timing, \{ reads, backed \}\);/, "each search's stages go to the hourly lines");
   assert.match(SERVER, /const \{ tally, stages, reads, \.\.\.result \} = await appCall\(gate, \{\s+task: "verify",/, "nor the desktop's");
   assert.match(SERVER, /verified=\$\{verified\?\.checked \?\? 0\}\/\$\{verified\?\.changed \?\? 0\} quoted=\$\{verified\?\.quoted \?\? 0\} unquoted=\$\{verified\?\.unquoted \?\? 0\} figures=\$\{verified\?\.figures \?\? 0\} partial=\$\{verified\?\.partial \?\? 0\} unread=\$\{verified\?\.unread \?\? 0\} retracted=\$\{retracted \?\? 0\}/);
-  assert.match(FACTCHECK, /partial: true, context: context \? claimWindow\(context, claim\) : "" \}\)/, "the search asks for the detail check, with the claim's paragraph");
+  assert.match(FACTCHECK, /partial: true, context: context \? claimWindow\(context, claim\) : "", pages \}\)/, "the search asks for the detail check, with the claim's paragraph, reading through the search's shared pages");
 });

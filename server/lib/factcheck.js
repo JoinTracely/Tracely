@@ -1,6 +1,6 @@
 import { CheckError } from "./errors.js";
-import { enrichSources, doiOf, DOI_REJECTED } from "./sourceEnrich.js";
-import { fetchUrlMetadata } from "./citeMeta.js";
+import { enrichSources, doiOf, pmidOf, DOI_REJECTED } from "./sourceEnrich.js";
+import { fetchUrlMetadata, sharedPages } from "./citeMeta.js";
 import { verifySources } from "./sourceVerify.js";
 import {
   ALLOWED_MODELS,
@@ -497,36 +497,49 @@ export async function findSources({ claim, correction, context, model, effort, m
     throw err;
   }
 
-  // The model no longer opens pages (SOURCES_SYSTEM): the server completes
-  // the citation fields itself — Crossref for anything with a DOI, the page's
-  // own metadata for the rest — under one short deadline, and drops a link
-  // that answers 404. Off for a mock answer and whenever a caller asks.
-  const completing = performance.now();
-  const { enriched, dropped, retracted: retractedByRecord } = enrich === false ? { enriched: 0, dropped: 0, retracted: 0 } : await completeSources(merged, { now: new Date() });
-  const complete = since(completing);
-  tell({ type: "links", urls: merged.map((s) => String(s.url ?? "")) });
+  // One fetch per page for the whole search (Codex review S2, citeMeta.js
+  // sharedPages): completing a source's citation fields and reading it for
+  // its receipt share the page. A source with no DOI and no PubMed id has
+  // its page read either way (Crossref has nothing to look up for it), so
+  // that fetch starts now, beside Crossref. Closed when the search ends.
+  const pages = enrich === false ? null : sharedPages();
+  try {
+    if (pages) for (const s of merged) if (!doiOf(s) && !pmidOf(s)) pages.start(s.url);
 
-  // Then the receipts (lib/sourceVerify.js): read what every source itself
-  // says and judge it against the claim. A source is "supports"/"refutes"
-  // only with a verbatim quote from its own text (`quote`, `readFrom`,
-  // `verified: true`); one on the topic is "context"; one that could not be
-  // read is "context" with `verified: false` — never backing. Never fails the
-  // search; its tokens are added to what the route records.
-  const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, partial: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel,
-    onProgress: (ev) => tell(ev.type === "read" ? { type: "read", url: String(merged[ev.i]?.url ?? ""), read: ev.read, from: ev.from } : ev),
-    // Nothing backs the whole sentence? Look for one that backs all but a small detail (sourceVerify.js coverDetail).
-    partial: true, context: context ? claimWindow(context, claim) : "" });
-  // OpenAlex's is_retracted, read on the same call as the abstract.
-  const gone = new Set(verified.retracted ?? []);
-  for (let i = merged.length - 1; i >= 0; i--) if (gone.has(merged[i])) merged.splice(i, 1);
-  const retracted = (retractedByRecord ?? 0) + gone.size;
+    // The model no longer opens pages (SOURCES_SYSTEM): the server completes
+    // the citation fields itself — Crossref for anything with a DOI, the page's
+    // own metadata for the rest — under one short deadline, and drops a link
+    // that answers 404. Off for a mock answer and whenever a caller asks.
+    const completing = performance.now();
+    const { enriched, dropped, retracted: retractedByRecord } = enrich === false ? { enriched: 0, dropped: 0, retracted: 0 } : await completeSources(merged, { now: new Date(), pages });
+    const complete = since(completing);
+    tell({ type: "links", urls: merged.map((s) => String(s.url ?? "")) });
 
-  // `webSearchCalls`: what the search tool billed, per call — the route
-  // records it and keeps it out of the response. `enriched`/`dropped`/
-  // `verified`/`retracted`/`stages`/`reads` are for the route's log lines.
-  return { sources: merged, model: usedModel, usage: verified.usage ? addUsage(usage, verified.usage) : usage, webSearchCalls, webSearchActions, enriched, dropped, retracted,
-    verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, figures: verified.figures ?? 0, partial: verified.partial ?? 0, unread: verified.unread ?? 0 },
-    stages: { search, complete, read: verified.stages?.read ?? 0, judge: verified.stages?.judge ?? 0, trim: verified.stages?.trim ?? 0 }, reads: verified.reads ?? {} };
+    // Then the receipts (lib/sourceVerify.js): read what every source itself
+    // says and judge it against the claim. A source is "supports"/"refutes"
+    // only with a verbatim quote from its own text (`quote`, `readFrom`,
+    // `verified: true`); one on the topic is "context"; one that could not be
+    // read is "context" with `verified: false` — never backing. Never fails the
+    // search; its tokens are added to what the route records.
+    const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, partial: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel,
+      onProgress: (ev) => tell(ev.type === "read" ? { type: "read", url: String(merged[ev.i]?.url ?? ""), read: ev.read, from: ev.from } : ev),
+      // Nothing backs the whole sentence? Look for one that backs all but a small detail (sourceVerify.js coverDetail).
+      partial: true, context: context ? claimWindow(context, claim) : "", pages });
+    // OpenAlex's is_retracted, read on the same call as the abstract.
+    const gone = new Set(verified.retracted ?? []);
+    for (let i = merged.length - 1; i >= 0; i--) if (gone.has(merged[i])) merged.splice(i, 1);
+    const retracted = (retractedByRecord ?? 0) + gone.size;
+
+    // `webSearchCalls`: what the search tool billed, per call — the route
+    // records it and keeps it out of the response. `enriched`/`dropped`/
+    // `verified`/`retracted`/`stages`/`reads` are for the route's log lines.
+    return { sources: merged, model: usedModel, usage: verified.usage ? addUsage(usage, verified.usage) : usage, webSearchCalls, webSearchActions, enriched, dropped, retracted,
+      verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, figures: verified.figures ?? 0, partial: verified.partial ?? 0, unread: verified.unread ?? 0 },
+      stages: { search, complete, read: verified.stages?.read ?? 0, judge: verified.stages?.judge ?? 0, trim: verified.stages?.trim ?? 0 }, reads: verified.reads ?? {},
+      pages: { fetched: pages?.counts.fetched ?? 0, reads: pages?.counts.reads ?? 0 } };
+  } finally {
+    pages?.close();
+  }
 }
 
 /* The part of the document the search should see: the claim's own
@@ -573,7 +586,7 @@ export function claimWindow(context, claim, { radius = 1_200, head = 3_000 } = {
  * on 2 of 8 real pages (Gallup, CDC) and was walled by NYT, Pew and Nature —
  * which is why the DOI path comes first and the page path is a fallback. */
 export const PAGE_DEADLINE_MS = 2_500;
-async function completeSources(list, { now = new Date(), fetchImpl = globalThis.fetch, deadlineMs = PAGE_DEADLINE_MS } = {}) {
+async function completeSources(list, { now = new Date(), fetchImpl = globalThis.fetch, deadlineMs = PAGE_DEADLINE_MS, pages = null } = {}) {
   const t0 = Date.now();
   const { enriched, mixed, retracted } = await enrichSources(list, { fetchImpl, deadlineMs });
   // Gone before anything reads them (source receipts, 2026-10-07): a link
@@ -595,7 +608,7 @@ async function completeSources(list, { now = new Date(), fetchImpl = globalThis.
       if (doiOf(s) || (s.year != null && credited)) return;
       let page;
       try {
-        page = await fetchUrlMetadata(s.url, { now, signal: ctrl.signal, fetchImpl });
+        page = await fetchUrlMetadata(s.url, { now, signal: ctrl.signal, fetchImpl, pages });
       } catch (e) {
         if (/returns (404|410)/.test(String(e?.message))) dead.add(s);
         return;

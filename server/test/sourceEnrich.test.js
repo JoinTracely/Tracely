@@ -216,11 +216,48 @@ test("findSources completes the fields from Crossref and the page, drops a dead 
     assert.deepEqual(j.authors, ["Eva C Winnebeck", "Maria T Vuori-Brodowski"]); assert.equal(j.year, 2019); assert.equal(j.doi, "10.1093/sleep/zsz307");
     assert.equal(c.year, 2024); assert.equal(c.date, "2024-05-15"); assert.equal(c.groupAuthor, "Centers for Disease Control and Prevention", "the page's own citation_author, validated by the reader — better than the model's \"CDC\"");
     assert.ok(hits.some((h) => h.includes("crossref")) && hits.some((h) => h.includes("cdc.gov")), "both completions ran");
+    // Completed from the page, then read from it for the receipt: one fetch (Codex review S2).
+    assert.equal(hits.filter((h) => h.includes("cdc.gov")).length, 1, "the CDC page is fetched once");
+    assert.equal(r.pages.fetched, hits.filter((h) => !/openai|crossref|openalex/.test(h)).length, "every page fetch is counted");
+    assert.ok(r.pages.reads > r.pages.fetched, "and read more often than fetched");
     // The model is no longer asked to open pages, and is asked for one search.
     const sentBody = JSON.parse((await (async () => { let b; globalThis.fetch = async (u, i) => { if (String(u).includes("openai")) b = i.body; return new Response(JSON.stringify({ status: "completed", model: "m", usage: {}, output: [{ type: "message", content: [{ type: "output_text", text: "{\"sources\":[]}", annotations: [] }] }] }), { status: 200 }); }; await findSources({ claim: "x", model: "gpt-5.6-luna" }).catch(() => {}); return b; })()));
     assert.match(sentBody.instructions, /Run ONE web search/);
     assert.match(sentBody.instructions, /Do NOT open pages/);
     assert.equal(sentBody.max_output_tokens, 3000);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("findSources starts a page Crossref cannot help with beside Crossref, and fetches it once (Codex review S2)", async () => {
+  const realFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "sk-test";
+  const model = { sources: [
+    { title: "Later school start times in a flexible system improve teenage sleep", url: "https://doi.org/10.1093/sleep/zsz307", publisher: "Sleep", snippet: "s", stance: "supports", kind: "journal", authors: [], groupAuthor: "", year: null, date: "", container: "", editors: [], doi: "" },
+    { title: "About Sleep", url: "https://www.cdc.gov/sleep/about/index.html", publisher: "CDC", snippet: "s", stance: "context", kind: "institutional", authors: [], groupAuthor: "", year: null, date: "", container: "", editors: [], doi: "" },
+  ] };
+  const html = `<html><head><title>About Sleep | CDC</title><meta property="article:published_time" content="2024-05-15"></head><body><p>${"Adults need seven or more hours of sleep each night. ".repeat(10)}</p></body></html>`;
+  let pageStarted = null, crossrefSawPage = null, pageFetches = 0;
+  const started = new Promise((r) => { pageStarted = r; });
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("api.openai.com")) return new Response(JSON.stringify({ status: "completed", model: "gpt-5.6-luna", usage: { input_tokens: 10, output_tokens: 10 },
+      output: [{ type: "web_search_call", status: "completed", action: { type: "search" } }, { type: "message", content: [{ type: "output_text", text: JSON.stringify(model), annotations: [] }] }] }), { status: 200 });
+    if (u.includes("api.crossref.org")) {
+      // Crossref answers only once the CDC page has been asked for (or after 1 s).
+      crossrefSawPage = await Promise.race([started.then(() => true), new Promise((r) => setTimeout(() => r(false), 1_000))]);
+      return new Response(JSON.stringify(CR()), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (u.includes("cdc.gov")) { pageFetches++; pageStarted(); return new Response(html, { status: 200, headers: { "content-type": "text/html" } }); }
+    return new Response("", { status: 404 });
+  };
+  try {
+    const r = await findSources({ claim: "Adults need seven or more hours of sleep.", model: "gpt-5.6-luna" });
+    assert.equal(crossrefSawPage, true, "the page was already being fetched while Crossref answered");
+    assert.equal(pageFetches, 1, "once, for its citation and its receipt");
+    const cdc = r.sources.find((x) => x.url.includes("cdc.gov"));
+    assert.equal(cdc.year, 2024, "its citation was completed from that fetch");
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -318,19 +355,20 @@ test("completeSources also reads the page for a source that has a year but no au
   process.env.OPENAI_API_KEY = "sk-test";
   const model = { sources: [{ title: "About Sleep", url: "https://www.cdc.gov/sleep/about/index.html", publisher: "CDC", snippet: "s", stance: "context", kind: "institutional", authors: [], groupAuthor: "", year: 2024, date: "", container: "", editors: [], doi: "" }] };
   const html = `<html><head><title>About Sleep | CDC</title><meta property="og:site_name" content="CDC"><meta name="citation_author" content="Centers for Disease Control and Prevention"></head></html>`;
-  let pageReads = 0, receiptReads = 0;
+  let pageFetches = 0;
   globalThis.fetch = async (url, init) => {
     const u = String(url);
     if (u.includes("api.openai.com")) return new Response(JSON.stringify({ status: "completed", model: "gpt-5.6-luna", usage: { input_tokens: 10, output_tokens: 10 }, output: [{ type: "web_search_call", status: "completed", action: { type: "search" } }, { type: "web_search_call", status: "completed", action: { type: "open_page" } }, { type: "message", content: [{ type: "output_text", text: JSON.stringify(model), annotations: [] }] }] }), { status: 200 });
-    // The citation reader sends no Accept header; the receipt check
-    // (lib/sourceVerify.js) reads every source's page too, with one.
-    if (u.includes("cdc.gov")) { if (init?.headers?.Accept) receiptReads++; else pageReads++; return new Response(html, { status: 200, headers: { "content-type": "text/html" } }); }
+    // Completing the citation and the receipt check (lib/sourceVerify.js)
+    // both read this page. It used to be fetched twice; since Codex review
+    // S2 the search fetches it once and both read it (citeMeta.js sharedPages).
+    if (u.includes("cdc.gov")) { pageFetches++; return new Response(html, { status: 200, headers: { "content-type": "text/html" } }); }
     throw new Error("unexpected " + u);
   };
   try {
     const r = await findSources({ claim: "Adults need seven or more hours of sleep.", model: "gpt-5.6-luna", effort: "low" });
-    assert.equal(pageReads, 1, "the dated-but-unattributed page was read");
-    assert.equal(receiptReads, 1, "and read once more for its receipt");
+    assert.equal(pageFetches, 1, "the page is fetched once");
+    assert.deepEqual(r.pages, { fetched: 1, reads: 2 }, "and read twice: for its citation and for its receipt");
     assert.equal(r.sources[0].groupAuthor, "Centers for Disease Control and Prevention");
     assert.equal(r.sources[0].year, 2024, "the model's year stands");
     assert.deepEqual(r.webSearchActions, { search: 1, open_page: 1 }, "actions are reported by type");
