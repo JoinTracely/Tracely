@@ -275,12 +275,15 @@ export function foldForMatch(text) {
 }
 /* The judge's quote without what may wrap it: quote marks, brackets, a
  * leading or trailing ellipsis (a quote that starts mid-sentence is still one
- * contiguous span), closing punctuation. */
+ * contiguous span), closing punctuation. The CJK marks NFKC leaves alone are
+ * stripped too ("。", "、", corner brackets): Chinese puts no space after
+ * "。", so a quote kept with its own full stop would end beside the next
+ * sentence's first letter and fail its boundary. */
 function quoteCore(quote) {
   let t = foldForMatch(quote).text;
   for (let prev = ""; prev !== t;) {
     prev = t;
-    t = t.replace(/^(?:["'([\s]|\.\.\.)+/, "").replace(/(?:["')\].,;:!?\s]|\.\.\.)+$/, "");
+    t = t.replace(/^(?:["'([\s「『【〈《]|\.\.\.)+/, "").replace(/(?:["')\].,;:!?\s。、」』】〉》]|\.\.\.)+$/, "");
   }
   return t;
 }
@@ -291,16 +294,36 @@ const clipQuote = (q) => {
   const sp = cut.lastIndexOf(" ");
   return `${(sp > MAX_QUOTE_CHARS * 0.6 ? cut.slice(0, sp) : cut).replace(/[,;:]$/, "")}…`;
 };
+/* A receipt has to say something: at least MIN_QUOTE_CHARS and three words.
+ * Both were counted for English (Codex review A1, 2026-10), so an exact
+ * 18-character Chinese sentence was one "word" and never a receipt. Now:
+ * - A Chinese or Japanese character, or a Korean syllable, counts as three
+ *   characters: each is a syllable, about what three Latin letters carry. So
+ *   "吸烟导致癌症" (6) passes like "smoking causes cancer", "下降了73%" fails
+ *   like "fell by 73%", and "흡연은 암을 유발한다" is no longer too short.
+ * - In a script written without spaces between words (Chinese, Japanese,
+ *   Thai, Lao, Khmer, Burmese) there are no words to count, so the length
+ *   decides alone.
+ * The weights are judgement, not measured. Boundaries are unchanged and
+ * script-blind: a letter of any script beside the quote rejects it, so a
+ * Chinese quote must start and end at punctuation, a space or the passage's
+ * edge, and "会影响学习" is never found inside "并不会影响学习". */
+const SYLLABIC = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+function saysEnough(q) {
+  let size = 0;
+  for (const ch of q) size += SYLLABIC.test(ch) ? 3 : 1;
+  return size >= MIN_QUOTE_CHARS && (UNSPACED.test(q) || q.split(" ").length >= 3);
+}
 /**
  * Where the quote is, verbatim (after folding), in ONE of the passages — on
  * word boundaries, so "fell by 73" is not found in "fell by 735" or "73.5%".
  * Returns { index, from, text } with `text` the passage's own characters, or
- * null. At least MIN_QUOTE_CHARS and three words: a receipt has to say
- * something.
+ * null. Only a quote that says enough (saysEnough, above).
  */
 export function matchQuote(quote, passages) {
   const q = quoteCore(quote);
-  if (q.length < MIN_QUOTE_CHARS || q.split(" ").length < 3) return null;
+  if (!saysEnough(q)) return null;
   const list = Array.isArray(passages) ? passages : [];
   for (let p = 0; p < list.length; p++) {
     const orig = String(list[p]?.text ?? "");
