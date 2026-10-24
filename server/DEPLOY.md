@@ -101,6 +101,10 @@ downtime, because a volume cannot be attached to two copies at once.
   in Railway, which redeploys by itself.
 - **Logs:** the deployment's logs in Railway, including the hourly
   `[tracely] usage` lines.
+- **What each action cost:** https://api.jointracely.com/admin/costs. It asks
+  for `TRACELY_ADMIN_TOKEN`, a random value of 24 characters or more that only
+  the owner holds. Set it in Railway → Variables. Without it, or with a
+  shorter one, `/api/admin/costs` answers 404 (`lib/costLedger.js`).
 - **Roll back:** Deployments → an earlier one → Redeploy. The model-tier rule
   under "The model tiers" applies just as it does to an `app.bak-*`.
 
@@ -693,6 +697,9 @@ What the privacy policy (PRIVACY.md) promises, and where it is enforced:
 
 - **Usage counters** (`entitlement_usage`): 13 months. `usagePurgeBefore`
   runs at boot and daily (server.js `sweepUsage`).
+- **Cost per action** (`cost_actions`, lib/costLedger.js): 90 days, purged
+  as rows arrive. Each row holds a time, an action, a pool, a model and
+  numbers. It has no account, install id, address or text.
 - **Billing events**: the Stripe payload is stored WITHOUT the payer's name,
   address or phone (lib/billing.js `redactStripeEvent`); the email stays —
   it is how a purchase finds its account.

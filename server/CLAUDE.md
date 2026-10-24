@@ -294,6 +294,29 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
       while one runs, and what those cost.
     Each lookup's own log line carries `tags=`. Tests:
     `test/search-tally.test.js`, `test/seenClaims.test.js`.
+  - **What each action cost, kept** (2026-10-24, `lib/costLedger.js`). The
+    lines above are counted in memory and lost on a deploy. Owner: "can we
+    create a system so I can see how much api credits weve used on each look
+    up or action that tracely uses?"
+    - **One row per action that was charged:** a check, a lookup, a source
+      search, a desktop call. It holds every model call the action made (a
+      check's citeFit call included), its web searches, tokens, time, and
+      whether it failed. A billed failure counts.
+    - **How it is written:** `chargeCall` notes each charge on the gate
+      (`noteActionCost`), and the request's `finally` writes the row
+      (`recordAction`). A joiner, or a request refused before its call,
+      writes nothing. A source search is split by mode: `sources:lookup`,
+      `sources:search`, `sources:correction`.
+    - **What it holds:** no caller and no text. It is kept 90 days
+      (`KEEP_DAYS`). The cost is the server's estimate, the spend cap's own
+      arithmetic; OpenAI's usage page is the bill.
+    - **Who reads it:** `GET /api/admin/costs?days=&recent=` with
+      `Authorization: Bearer <TRACELY_ADMIN_TOKEN>`, and the page at
+      `/admin/costs`. The page holds nothing: it keeps the token in the tab
+      (sessionStorage). Without the variable, or with one under 24 characters,
+      the route is a 404. A wrong token is a 401. Another site's page is
+      refused by the origin guard before the route runs.
+    Tests: `test/cost-ledger.test.js`.
   - **`TRACELY_PROMPT_CACHE_KEY=caller`** (off by default) sends a hashed
     per-caller `prompt_cache_key` on `/api/check`. It changes where a call
     runs, never what it answers. It is off because a cache write costs more
