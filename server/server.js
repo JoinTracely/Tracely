@@ -11,7 +11,9 @@ import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
 import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
-import { noteClaimSeen, takeRepeatLines } from "./lib/seenClaims.js";
+import { noteClaimSeen, takeRepeatLines, noteBucket, noteBucketOutcome, takeCandidateLines } from "./lib/seenClaims.js";
+import { startSearch, noteSearchCost, endSearch, searchOutcome, takeSearchLines } from "./lib/searchTally.js";
+import { noteArrival, noteDupeCost, noteDone, takeDupeLines } from "./lib/dupeTally.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, billingOrderGet, billingOrderPut, accountPurge, usagePurgeBefore, requestCachePurge } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, verifyQuota, recordVerify, checkQuota, recordCheck, aiQuota, recordAi,
@@ -976,6 +978,8 @@ function chargeCall(gate, { model, usage, webSearchCalls = 0, pool }) {
   // The try-out's dollar window per address (demoGate), failed calls included.
   if (gate.demo?.addr) demoAddressSpend.add(gate.demo.addr, cost);
   tallyCall(gate.route, { usage, webSearchCalls, cost });
+  noteSearchCost(gate.searchTally, cost); // a source search's cost by pool and mode (lib/searchTally.js)
+  noteDupeCost(gate.dupe, cost); // what a duplicate in flight cost (lib/dupeTally.js)
   return cost;
 }
 
@@ -997,8 +1001,12 @@ function promptCacheKey(gate) {
 
 // Once an hour, what the charged calls cost by route, cache reads and writes
 // included (lib/usageTally.js), and how long each stage of a source search
-// took (lib/stageTally.js).
-const hourlyLines = () => [...takeUsageLines(), ...takeRepeatLines(), ...takeStageLines(), ...takeJoinLines()];
+// took (lib/stageTally.js). Since 2026-10-24, the cost counters: each source
+// search's cost and outcome by pool and mode, and a lookup's tags
+// (lib/searchTally.js); how often an earlier search's bucket could have
+// served it (lib/seenClaims.js candidates); and same-caller duplicates in
+// flight (lib/dupeTally.js).
+const hourlyLines = () => [...takeUsageLines(), ...takeRepeatLines(), ...takeCandidateLines(), ...takeSearchLines(), ...takeStageLines(), ...takeJoinLines(), ...takeDupeLines()];
 setInterval(() => { for (const line of hourlyLines()) console.log(line); }, 3_600_000).unref?.();
 
 /* The app routes' gate: the same shape as spendGate, over the APP pool and
@@ -1559,6 +1567,8 @@ const server = http.createServer(async (req, res) => {
       if (!quota.allowed) throw quotaRefusal(ent, who, checkLimitMessage(quota));
       recordCheck(ent, who); // before the call, not after
       if (gate.demo) demoRecord(gate); // likewise
+      // The same check from the same caller while one runs: counted, never joined (lib/dupeTally.js).
+      gate.dupe = gate.demo || !isDailyQuotaKey(who) ? null : noteArrival("/api/check", who, { text, sentences, deep, citeFit: citeFit === true });
       let modelUsed, level, maxTokens;
       // A try-out check is held, split and sharded at its own worst case
       // (WORST_CALL "/api/demo/check"), and runs under its own output
@@ -1638,7 +1648,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const { claim, correction, context, model, effort, verify: verifyAsked } = (await parseJsonBody(req)) ?? {};
+      const { claim, correction, context, model, effort, verify: verifyAsked, lookupTags: tagsSent } = (await parseJsonBody(req)) ?? {};
       if (typeof claim !== "string" || !claim.trim() || claim.length > 2000) {
         throw new CheckError("bad_request", "claim must be a non-empty string of at most 2000 characters");
       }
@@ -1688,6 +1698,15 @@ const server = http.createServer(async (req, res) => {
       if (!quota.allowed) throw quotaRefusal(ent, who, verify ? verifyLimitMessage(quota) : sourceLimitMessage(quota));
       if (verify) recordVerify(ent, who); else recordSourceSearch(ent, who); // before the call, not after
       if (gate.demo) demoRecord(gate); // likewise
+      /* The cost counters (2026-10-24), counted only: this search's cost and
+       * outcome by pool and mode, with a lookup's tags (lib/searchTally.js);
+       * its claim's bucket (lib/seenClaims.js noteBucket); the same search
+       * from the same caller while one runs (lib/dupeTally.js). The stream and
+       * the plain route are one search, counted as /api/sources. */
+      const mode = verify ? "lookup" : correction ? "correction" : "search";
+      gate.searchTally = startSearch({ route: "/api/sources", pool: gate.pool, mode, tags: tagsSent });
+      const bucket = gate.demo ? null : noteBucket(claim, Date.now(), { scope: mode, caller: who });
+      gate.dupe = gate.demo || !isDailyQuotaKey(who) ? null : noteArrival("/api/sources", who, { claim, correction: correction ?? null, context: context ?? null, verify });
 
       globalCounter?.stamp(); // before the call, not after
       if (perCaller) callerRate.stamp(who);
@@ -1756,7 +1775,7 @@ const server = http.createServer(async (req, res) => {
       const r = Object.entries(reads ?? {}).map(([k, v]) => `${k}:${v}`).join(",") || "none";
       // Pages fetched, and read: completing and the receipts share one fetch (Codex review S2).
       const p = `fetched:${pages?.fetched ?? 0},reads:${pages?.reads ?? 0}`;
-      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} verify=${verify ? 1 : 0} ms=${Date.now() - started} stages=${t} reads=${r} pages=${p}`);
+      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} verify=${verify ? 1 : 0}${gate.searchTally.tags ? ` tags=${Object.values(gate.searchTally.tags).join(",")}` : ""} ms=${Date.now() - started} stages=${t} reads=${r} pages=${p}`);
       const backed = result.sources.some((s) => s?.stance === "supports" && s?.verified === true);
       tallyStages(url.pathname, gate.pool, timing, { reads, backed });
       // The tool fee is most of this route's cost and is invisible in the
@@ -1764,6 +1783,9 @@ const server = http.createServer(async (req, res) => {
       // expensive route ~5x on the fast tier — and a reasoning model can
       // search more than once per answer, so the calls are counted.
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: searchFee(webSearchCalls), pool: gate.pool });
+      const outcome = searchOutcome(result.sources);
+      endSearch(gate.searchTally, outcome);
+      noteBucketOutcome(bucket, outcome === "backed");
       const body = { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started };
       if (!live) { json(res, 200, body, cors); return; }
       // A mock answer (and any path that skipped the search's progress) still
@@ -2391,6 +2413,7 @@ const server = http.createServer(async (req, res) => {
         console.error("[tracely] could not record a failed call's spend:", e?.message);
       }
     }
+    endSearch(gate?.searchTally, "failed"); // a source search that started and did not answer (counted once)
     // A live search that failed has already sent its error and ended.
     if (res.headersSent) { if (!res.writableEnded) res.destroy(); return; }
     if (err instanceof CheckError) {
@@ -2406,6 +2429,7 @@ const server = http.createServer(async (req, res) => {
     // account's allowance.
     gate?.reservation?.release();
     gate?.thoroughHold?.release();
+    noteDone(gate?.dupe); // no longer in flight (lib/dupeTally.js)
   }
 });
 

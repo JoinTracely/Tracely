@@ -84,4 +84,97 @@ export function takeRepeatLines() {
 }
 
 export function seenSize() { return seen.size; }
-export function resetSeen() { seen.clear(); counts.clear(); }
+export function resetSeen() { seen.clear(); counts.clear(); buckets.clear(); bucketCounts.clear(); }
+
+/* ── candidate buckets (cost counters, 2026-10-24) ─────────────────────────
+ * Would sources found for an EARLIER search serve this claim? A looser match
+ * than the exact repeat above (claimFeatures):
+ * - A claim that states a figure and names someone ("73% … National
+ *   Education Association") is bucketed by its figures, names, negation and
+ *   direction alone, so another student's wording of the same statistic
+ *   lands in the same bucket.
+ * - Any other claim is bucketed by those and its longer content words,
+ *   ignoring word order, short words and word endings.
+ * - Fewer than three features (a short, generic sentence) gets no bucket.
+ * Counted only; nothing is reused. Every claim would still be judged afresh
+ * against such sources, so a hit is an upper bound on what judging known
+ * sources first could serve. `otherBacked`: the bucket was searched by
+ * ANOTHER caller and that search ended with a backing source, the case where
+ * a shared candidate could have replaced the paid search.
+ *
+ *   [tracely] candidates scope=lookup|search|correction searches=…
+ *             bucketed=… seen=… (n%) other=… (n%) otherBacked=… (n%)
+ *
+ * The same rules as the repeats: an HMAC under the boot key, in memory, a
+ * fortnight, forgotten on restart.
+ */
+const NEGATION = /\b(?:not|no|never|none|nor|neither|without|cannot)\b|n['’]t\b/i;
+const UP = /\b(?:increas\w*|rise|rises|rising|rose|grow\w*|grew|more|higher|raise[sd]?|gain\w*|improv\w*)\b/i;
+const DOWN = /\b(?:decreas\w*|fall\w*|fell|drop\w*|fewer|less|lower\w*|reduc\w*|declin\w*)\b/i;
+const FIGURE = /(\d[\d,]*(?:\.\d+)?)\s*(%|percent|per cent|times|million|billion|thousand|hours?|years?|days?|minutes?)?/gi;
+const FEATURE_STOP = new Set(["according", "between", "because", "however", "therefore", "through", "without", "within", "around", "should", "would", "could", "become", "becomes", "people", "really", "rather", "others", "another", "whether", "during", "before", "almost", "always", "itself", "themselves"]);
+
+// As in the extension (extension/CLAUDE.md, "An acronym is a name"): these are words, not names.
+const NOT_NAMES = new Set(["ai", "us", "uk", "eu"]);
+
+export function claimFeatures(claim) {
+  // A citation in brackets ("(NEA, 2024)") says who, not what: its year is not the claim's.
+  const s = String(claim ?? "").replace(/\([^()]*\d{4}[^()]*\)/g, " ");
+  const figures = [...s.matchAll(FIGURE)].map((m) => `#${m[1].replace(/,/g, "")}${String(m[2] ?? "").toLowerCase().replace(/^(?:percent|per cent)$/, "%").replace(/s$/, "")}`);
+  const words = (s.match(/\p{L}[\p{L}'’]*/gu) ?? []); // a hyphen splits: "AI-powered" is "AI" and "powered"
+  // A name: an acronym anywhere, or a capitalised word that does not start the sentence.
+  const names = words.filter((w, i) => (/^\p{Lu}{2,}$/u.test(w) || (i > 0 && /^\p{Lu}\p{Ll}/u.test(w))) && !NOT_NAMES.has(w.toLowerCase())).map((w) => `@${w.toLowerCase()}`);
+  const marks = [NEGATION.test(s) && "!not", UP.test(s) && "^up", DOWN.test(s) && "^down"].filter(Boolean);
+  const named = figures.length > 0 && names.length > 0;
+  const content = named ? [] : words.map((w) => w.toLowerCase()).filter((w) => w.length >= 6 && !FEATURE_STOP.has(w) && !names.includes(`@${w}`)).map((w) => w.replace(/(?:ing|ed|es|s)$/, ""));
+  return [...new Set([...figures, ...names, ...marks, ...content])].sort();
+}
+
+const buckets = new Map(); // keyed bucket → { t, callers: [keyed callers], backedBy: [keyed callers] }
+const bucketCounts = new Map(); // scope → { searches, bucketed, seen, other, otherBacked }
+
+/** Counts the claim's bucket as searched now; returns the handle noteBucketOutcome needs, or null (no bucket). */
+export function noteBucket(claim, now = Date.now(), { scope = "search", caller = null } = {}) {
+  const c = bucketCounts.get(scope) ?? { searches: 0, bucketed: 0, seen: 0, other: 0, otherBacked: 0 };
+  c.searches += 1;
+  bucketCounts.set(scope, c);
+  const features = claimFeatures(claim);
+  if (features.length < 3) return null;
+  c.bucketed += 1;
+  const h = keyed(`bucket\n${scope}\n${features.join(" ")}`);
+  const who = caller ? keyed(`caller\n${caller}`) : "anyone";
+  const entry = buckets.get(h);
+  const live = entry != null && now - entry.t < SEEN_TTL_MS;
+  if (live) {
+    c.seen += 1;
+    if (entry.callers.some((x) => x !== who)) c.other += 1;
+    if (entry.backedBy.some((x) => x !== who)) c.otherBacked += 1;
+  }
+  const callers = live ? entry.callers.filter((x) => x !== who) : [];
+  callers.push(who);
+  buckets.delete(h); // re-insert so Map order is least-recent first
+  buckets.set(h, { t: now, callers: callers.slice(-CALLERS_KEPT), backedBy: live ? entry.backedBy : [] });
+  if (buckets.size > SEEN_MAX) {
+    for (const [k, e] of buckets) {
+      if (buckets.size <= SEEN_MAX && now - e.t < SEEN_TTL_MS) break;
+      buckets.delete(k);
+    }
+  }
+  return { h, who };
+}
+
+/** How that search ended: a backing source makes the bucket a candidate for the next caller. */
+export function noteBucketOutcome(handle, backed) {
+  if (!handle || !backed) return;
+  const entry = buckets.get(handle.h);
+  if (entry && !entry.backedBy.includes(handle.who)) entry.backedBy = [...entry.backedBy, handle.who].slice(-CALLERS_KEPT);
+}
+
+/** One line per scope since the last take, then the counts start again (the buckets are kept). */
+export function takeCandidateLines() {
+  const pct = (part, whole) => (whole > 0 ? `${Math.round((100 * part) / whole)}%` : "-");
+  const lines = [...bucketCounts].sort(([a], [b]) => a.localeCompare(b)).map(([scope, c]) =>
+    `[tracely] candidates scope=${scope} searches=${c.searches} bucketed=${c.bucketed} seen=${c.seen} (${pct(c.seen, c.searches)}) other=${c.other} (${pct(c.other, c.searches)}) otherBacked=${c.otherBacked} (${pct(c.otherBacked, c.searches)}) remembered=${buckets.size}`);
+  bucketCounts.clear();
+  return lines;
+}

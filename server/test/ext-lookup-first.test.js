@@ -233,11 +233,11 @@ test("verdicts saved with the doc keep their lookup: refuted and unverified are 
 
 /* ── the queue, in Docs mode ─────────────────────────────────────────── */
 
-function docsQueue({ segs, verdicts, outcomes, prefs = {}, inflight = 0, signedOut = false }) {
+function docsQueue({ segs, verdicts, outcomes, prefs = {}, inflight = 0, signedOut = false, elsewhere = {} }) {
   const clock = { t: 5_000_000 };
   const ctx = context(clock);
   ctx.log = { searches: [], renders: 0 };
-  ctx.seed = { segs, verdicts, outcomes, prefs, inflight, signedOut };
+  ctx.seed = { segs, verdicts, outcomes, prefs, inflight, signedOut, elsewhere };
   return vm.runInContext(`${SHARED({ lookupFirst: true, quoteTips: true })}
     notePrefs(seed.prefs);
     const segments = seed.segs.map((s) => ({ checkable: true, ...s }));
@@ -251,6 +251,9 @@ function docsQueue({ segs, verdicts, outcomes, prefs = {}, inflight = 0, signedO
     const docGenre = "prose";
     let sourcesInflight = seed.inflight;
     const needsSignIn = () => seed.signedOut;
+    // The cost counters' device half (Docs mode, beside cycle): what another Doc here had, and the lookup's start.
+    const elsewhereTag = (hash) => (seed.elsewhere ?? {})[hash] ?? "no";
+    const noteLookupStarted = (hash) => { log.started = (log.started ?? 0) + 1; };
     const persistCaches = () => {};
     const render = () => { log.renders++; };
     const currentIssues = () => [];
@@ -259,7 +262,7 @@ function docsQueue({ segs, verdicts, outcomes, prefs = {}, inflight = 0, signedO
     // The real fetchSources' lookup half: verify: true, then lookedUp decides the verdict.
     async function fetchSources(hash, auto, opts) {
       const seg = segments.find((s) => s.hash === hash);
-      log.searches.push({ hash, auto, lookup: opts?.lookup === true, at: Date.now() });
+      log.searches.push({ hash, auto, lookup: opts?.lookup === true, at: Date.now(), tags: opts?.tags });
       const got = seed.outcomes[hash];
       if (got === "fail") return true;
       if (got === "limit") { lookupsOut = true; return true; }
@@ -331,6 +334,19 @@ test("Docs: the lookups are paced at three a minute", async () => {
   assert.ok(at[4] - at[1] >= 60_000);
 });
 
+test("Docs: each lookup carries its labels, never text: its kind, its place among the picks, what this Doc and this computer already had (ext-cost-counters)", async () => {
+  const RELATED = "The 64 percent of teenagers who owned a smartphone in 2019 mostly used it every day.";
+  const segs = [{ hash: "s1", text: FIGURE }, { hash: "s2", text: NEA }, { hash: "s3", text: RELATED }];
+  const verdicts = { s1: { verdict: "needs_citation", confidence: "high" }, s2: { verdict: "questionable", confidence: "high" }, s3: { verdict: "questionable", confidence: "high" } };
+  const Q = docsQueue({ segs, verdicts, outcomes: { s1: [read("supports")] }, elsewhere: { s2: "looked" } });
+  await Q.autoFindSources([]);
+  const tags = Object.fromEntries(Q.log.searches.map((s) => [s.hash, { ...s.tags }]));
+  assert.deepEqual(tags.s1, { rank: "0", pick: "1", doc: "none", elsewhere: "no" }, "the first: nothing found yet");
+  assert.deepEqual(tags.s2, { rank: "0", pick: "2", doc: "some", elsewhere: "looked" }, "s1's sources are in the Doc now; another Doc here looked s2 up");
+  assert.deepEqual(tags.s3, { rank: "0", pick: "3", doc: "related", elsewhere: "no" }, "s1's sources are about the same figure");
+  assert.equal(Q.log.started, 3, "each lookup's start is counted for Copy diagnostics");
+});
+
 test("Docs: the writer's own search goes first, and what it found answers the lookup", async () => {
   const segs = [{ hash: "s1", text: FIGURE }];
   const Q = docsQueue({ segs, verdicts: { s1: { verdict: "needs_citation", confidence: "high" } }, outcomes: {} });
@@ -363,12 +379,13 @@ test("Docs: signed out, out of lookups, or switched off, nothing is looked up", 
 /* ── wiring ──────────────────────────────────────────────────────────── */
 
 test("wired: a lookup asks for verify: true, in both modes, and its failure is never said", () => {
-  assert.equal((SRC.match(/\.\.\.\(lookup \? \{ verify: true \} : \{\}\), \/\/ a lookup: the server's VERIFY_LIMITS, never the writer's searches/g) || []).length, 2);
+  assert.equal((SRC.match(/\.\.\.\(lookup \? \{ verify: true, lookupTags: arguments\[2\]\?\.tags \?\? undefined \} : \{\}\),/g) || []).length, 2, "and its labels (ext-cost-counters), never text");
   assert.equal((SRC.match(/const lookup = arguments\[2\]\?\.lookup === true;/g) || []).length, 2);
   assert.equal((SRC.match(/correction: \(!lookup && f\?\.revision\) \|\| undefined,/g) || []).length, 2, "a lookup searches the sentence as written, never the check's rewrite");
   assert.equal((SRC.match(/if \(lookup\) \{\n(?:\s*\/\/[^\n]*\n)+\s+if \(err\?\.kind === "plan_limit"\) lookupsOut = true;\n\s+return( true)?;/g) || []).length, 2, "out of lookups stops them; nothing reaches the card or the header");
   assert.equal((SRC.match(/if \(lookupFirstOn\(\)\) return lookUpClaims\(\);/g) || []).length, 2, "autoFindSources, both modes");
-  assert.equal((SRC.match(/for \(const \{ hash \} of lookupPicks\(lookupCandidates\(\)\)\) \{/g) || []).length, 2);
+  assert.equal((SRC.match(/for \(const \[at, \{ hash, text \}\] of lookupPicks\(lookupCandidates\(\)\)\.entries\(\)\) \{/g) || []).length, 2);
+  assert.equal((SRC.match(/await fetchSources\(hash, true, \{ lookup: true, tags: lookupTagsFor\(hash, text, at \+ 1\) \}\);/g) || []).length, 2);
   assert.equal((SRC.match(/\} else if \(!lookupKicked && lookupFirstOn\(\)\) \{/g) || []).length, 2, "verdicts kept from an earlier visit are looked up once");
   assert.equal((SRC.match(/const couldCiteHtml = typeof lookupFirstOn === "function" && lookupFirstOn\(\)/g) || []).length, 2, "both panels offer Sources you could cite");
   assert.equal((SRC.match(/shadow\.getElementById\("couldCiteToggle"\)\?\.addEventListener/g) || []).length, 2);
