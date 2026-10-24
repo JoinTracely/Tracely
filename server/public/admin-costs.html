@@ -124,6 +124,12 @@
     "demo/sources:correction": "Try-out source search for a fix",
   };
   const POOLS = { extension: "Free users", paid: "Student and Pro", beta: "Testers", app: "Desktop", demo: "Try-out page" };
+  // Which search answered a source search (server/lib/searchApi.js): the cheaper one, it and then OpenAI's, or OpenAI's alone.
+  const VIA = { cheap: "Cheaper search", fallback: "Cheaper, then OpenAI", openai: "OpenAI" };
+  const cheaperOf = (v) => {
+    const n = (v?.cheap ?? 0) + (v?.fallback ?? 0) + (v?.openai ?? 0);
+    return n ? `${v.cheap ?? 0} of ${n} (${Math.round(((v.cheap ?? 0) / n) * 100)}%)` : "—";
+  };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const label = (a) => LABELS[a] ?? a;
@@ -176,7 +182,7 @@
       ["Spent today, all pools", `$${today.toFixed(2)}`, pools.map(([k, p]) => `${POOLS[k] ?? k} $${(p.spentUsd || 0).toFixed(2)} of $${(p.budgetUsd || 0).toFixed(0)}`).join(" · ")],
     ].map(([k, v, n]) => `<div class="card tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
 
-    $("actions").innerHTML = `<thead><tr><th>Action</th><th>Count</th><th>Total</th><th>Share</th><th>Average</th><th>Median</th><th>95th pct</th><th>Most</th><th>Searches each</th><th>Tokens in / out</th><th>Cached</th><th>Time</th><th>Failed</th></tr></thead><tbody>${
+    $("actions").innerHTML = `<thead><tr><th>Action</th><th>Count</th><th>Total</th><th>Share</th><th>Average</th><th>Median</th><th>95th pct</th><th>Most</th><th>Searches each</th><th>Tokens in / out</th><th>Cached</th><th>Cheaper search answered</th><th>Time</th><th>Failed</th></tr></thead><tbody>${
       r.actions.length ? r.actions.map((a) => `<tr>
         <td>${esc(label(a.action))}${LABELS[a.action] ? `<span class="key">${esc(a.action)}</span>` : ""}</td>
         <td>${a.count.toLocaleString()}</td>
@@ -189,8 +195,9 @@
         <td>${a.avgSearches}</td>
         <td>${a.avgInputTokens.toLocaleString()} / ${a.avgOutputTokens.toLocaleString()}</td>
         <td>${Math.round(a.cachedShare * 100)}%</td>
+        <td>${cheaperOf(a.via)}</td>
         <td>${(a.avgMs / 1000).toFixed(1)} s</td>
-        <td class="${a.failed ? "bad" : ""}">${a.failed}</td></tr>`).join("") : `<tr><td colspan="13">Nothing has been charged in this range.</td></tr>`
+        <td class="${a.failed ? "bad" : ""}">${a.failed}</td></tr>`).join("") : `<tr><td colspan="14">Nothing has been charged in this range.</td></tr>`
     }</tbody>`;
 
     const W = Math.max(320, r.byDay.length * 36), H = 160, max = Math.max(...r.byDay.map((d) => d.totalCents), 0.0001);
@@ -203,20 +210,21 @@
         <text x="${i * 36 + 18}" y="${H + 32}" text-anchor="middle">${esc(money(d.totalCents))}</text></g>`;
     }).join("")}</svg>` : `<p class="sub">Nothing yet.</p>`;
 
-    $("recent").innerHTML = `<thead><tr><th>When</th><th>Action</th><th>Cost</th><th>Searches</th><th>Tokens in / out</th><th>Model</th><th>Pool</th><th>Time</th><th></th></tr></thead><tbody>${
+    $("recent").innerHTML = `<thead><tr><th>When</th><th>Action</th><th>Cost</th><th>Search used</th><th>OpenAI searches</th><th>Tokens in / out</th><th>Model</th><th>Pool</th><th>Time</th><th></th></tr></thead><tbody>${
       r.recent.length ? r.recent.map((x) => `<tr>
         <td>${esc(new Date(x.at).toLocaleString())}</td>
         <td>${esc(label(x.action))}</td>
         <td><b>${money(x.cents)}</b></td>
+        <td>${esc(VIA[x.via] ?? "")}</td>
         <td>${x.searches}</td>
         <td>${x.inputTokens.toLocaleString()} / ${x.outputTokens.toLocaleString()}</td>
         <td>${esc(x.model)}</td>
         <td>${esc(POOLS[x.pool] ?? x.pool)}</td>
         <td>${(x.ms / 1000).toFixed(1)} s</td>
-        <td class="bad">${x.ok ? "" : "failed"}</td></tr>`).join("") : `<tr><td colspan="9">Nothing yet.</td></tr>`
+        <td class="bad">${x.ok ? "" : "failed"}</td></tr>`).join("") : `<tr><td colspan="10">Nothing yet.</td></tr>`
     }</tbody>`;
 
-    $("note").textContent = `Costs are the server's estimate: tokens at the prices in server/shared/prices.js, plus $0.01 for each web search. OpenAI's usage page is the bill. Records are kept ${r.keepDays} days, with no account and no text.`;
+    $("note").textContent = `Costs are the server's estimate: tokens at the prices in server/shared/prices.js, plus $0.01 for each OpenAI web search and the cheaper search's own price (TRACELY_SEARCH_PRICE_PER_1K_USD). OpenAI's usage page is the bill. Records are kept ${r.keepDays} days, with no account and no text.`;
   }
 
   $("login").addEventListener("submit", (e) => {
