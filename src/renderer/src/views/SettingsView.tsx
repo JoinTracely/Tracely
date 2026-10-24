@@ -219,7 +219,7 @@ function countOf(n: number, noun: string): string {
 }
 
 // Where "Something went wrong?" writes to (the extension's Help has the same).
-const SUPPORT_EMAIL = 'hello@jointracely.com'
+const SUPPORT_EMAIL = 'info@jointracely.com'
 
 export default function SettingsView({
   onNavigate,

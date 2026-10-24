@@ -56,7 +56,7 @@ const MIN_QUOTE_CHARS = 15;
 const MIN_TEXT_CHARS = 80;   // an abstract shorter than this is not one
 const MIN_PAGE_CHARS = 200;  // a page with less visible text is a shell, an app or a wall
 const MAX_PAGE_BYTES = 1_500_000;
-const API_UA = "Tracely/1.0 (mailto:hello@jointracely.com)";
+const API_UA = "Tracely/1.0 (mailto:info@jointracely.com)";
 
 /* OpenAlex stores an abstract as {word: [positions]}. */
 export function abstractFromIndex(index) {
