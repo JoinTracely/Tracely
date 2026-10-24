@@ -48,6 +48,7 @@ test("structuredCall sends the Responses API strict json_schema body", async () 
     model: "gpt-6-astra", instructions: "S", input: "U", max_output_tokens: 99,
     text: { format: { type: "json_schema", name: "nm", schema: SCHEMA, strict: true } },
     reasoning: { effort: "low" },
+    store: false, // nothing kept as OpenAI application state (test/openai-store.test.js)
   });
   assert.deepEqual(r, { parsed: { a: "x" }, model: "gpt-6-astra", usage: { input: 5, output: 7, cached: 2, cacheWrite: 0 } });
 });
@@ -78,7 +79,7 @@ test("textCall passes history through and trims the reply", async () => {
   const llm = await fresh();
   const calls = stub(ok({ model: "m", output_text: "  hi  " }));
   const r = await llm.textCall({ model: "gpt-5.6-luna", system: "S", messages: [{ role: "user", content: "q" }], maxTokens: 10, what: "t", effort: "high" });
-  assert.deepEqual(calls[0].body, { model: "gpt-5.6-luna", instructions: "S", input: [{ role: "user", content: "q" }], max_output_tokens: 10, reasoning: { effort: "high" } });
+  assert.deepEqual(calls[0].body, { model: "gpt-5.6-luna", instructions: "S", input: [{ role: "user", content: "q" }], max_output_tokens: 10, reasoning: { effort: "high" }, store: false });
   assert.equal(r.text, "hi");
 });
 
@@ -91,7 +92,7 @@ test("webSearchCall sends the web_search tool, no effort unless asked, and retur
     { type: "url_citation", url: "https://a.org", title: "A" }, { type: "url_citation", url: "https://b.org" }, { type: "file_citation", url: "x" },
   ] }] }] }));
   const r = await llm.webSearchCall({ model: "nope", system: "S", user: "q", maxTokens: 5, what: "s" });
-  assert.deepEqual(calls[0].body, { model: "gpt-5.6-luna", instructions: "S", input: "q", max_output_tokens: 5, tools: [{ type: "web_search" }] });
+  assert.deepEqual(calls[0].body, { model: "gpt-5.6-luna", instructions: "S", input: "q", max_output_tokens: 5, tools: [{ type: "web_search" }], store: false });
   assert.deepEqual(r.citations, [{ url: "https://a.org", title: "A" }, { url: "https://b.org", title: "" }]);
 });
 
@@ -105,6 +106,7 @@ test("webSearchCall with a schema adds the strict json_schema format, never tool
   assert.deepEqual(calls[0].body, {
     model: "gpt-5.6-luna", instructions: "S", input: "q", max_output_tokens: 5, tools: [{ type: "web_search" }],
     text: { format: { type: "json_schema", name: "nm", schema: SCHEMA, strict: true } },
+    store: false,
   });
   assert.equal(r.text, '{"a":"x"}');
 

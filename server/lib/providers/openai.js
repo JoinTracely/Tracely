@@ -116,14 +116,22 @@ export const openai = {
   },
 
   /* Reads the global fetch at CALL time, never at import: test/effort.test.js
-   * swaps globalThis.fetch after this module has loaded. */
+   * swaps globalThis.fetch after this module has loaded.
+   *
+   * `store: false` on every request (2026-10-24, the legal checklist): the
+   * Responses API otherwise keeps each request and its answer, a student's
+   * sentences included, as "application state" for 30 days. Tracely never
+   * reads a stored response back (every call is one turn), so nothing is
+   * lost. OpenAI's own abuse-monitoring logs (up to 30 days) are separate
+   * and stay; PRIVACY.md says both. Set here, once, so no request builder
+   * can leave it out. */
   async send(body, { key, timeoutMs }) {
     let res;
     try {
       res = await fetch(API, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, store: false }),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
