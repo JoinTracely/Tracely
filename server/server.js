@@ -14,7 +14,7 @@ import * as watch from "./lib/watch.js";
 import { noteClaimSeen, takeRepeatLines } from "./lib/seenClaims.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, billingOrderGet, billingOrderPut, accountPurge, usagePurgeBefore, requestCachePurge } from "./lib/db.js";
-import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
+import { planForRequest, sourceSearchQuota, recordSourceSearch, verifyQuota, recordVerify, checkQuota, recordCheck, aiQuota, recordAi,
          callerId, clientAddress, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
          flowQuota, recordFlow, reviewQuota, recordReview, kindQuota, recordKind, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
@@ -280,6 +280,9 @@ const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review"
 // extension pool, whatever the caller id, since an install id rotates freely);
 // only the paid pool, which reserves every call, has no global window.
 const callerSearchRate = keyedRateLimiter(SPEND.appCallerSearchesPerHour, 3_600_000);
+// The extension's own lookups (verify: true): windows of their own, so they
+// never take the hour a writer's "Find a source" needs (shared/guards.js verifySearchesPerHour).
+const callerVerifyRate = keyedRateLimiter(SPEND.callerVerifySearchesPerHour, 3_600_000);
 // /api/sources/stream is /api/sources with its progress sent as it happens:
 // one search, one count, one window — every set below names both.
 const SOURCE_ROUTES = new Set(["/api/sources", "/api/sources/stream"]);
@@ -470,6 +473,7 @@ async function applyToDoc(body) {
 // A teacher's rubric is a page, not a book. Enough for any real one.
 const MAX_CUSTOM_RUBRIC_CHARS = 6000;
 const webSearchCounter = rollingCounter(GUARDS.maxWebSearchesPerHour);
+const verifyCounter = rollingCounter(SPEND.verifySearchesPerHour); // every free and beta caller's lookups together
 // Beta-pool source searches: their own window, so testers (who are Pro, with
 // no daily source quota) cannot take the hour every store user shares.
 const betaWebSearchCounter = rollingCounter(SPEND.betaWebSearchesPerHour);
@@ -1168,6 +1172,13 @@ function sourceLimitMessage(q) {
   }
   return `You've used today's ${q.limit} source searches. They reset at midnight.`;
 }
+// A lookup the extension makes on its own: nobody asked, so the extension
+// says nothing about it; this text is for the log and a curious caller.
+function verifyLimitMessage(q) {
+  return q.blockedBy === "month"
+    ? `This month's ${q.monthLimit} automatic lookups are used. They reset on ${monthDayLabel(q.resetsOn)}.`
+    : `Today's ${q.limit} automatic lookups are used. They reset at midnight.`;
+}
 
 const AI_QUOTA = {
   check: aiQuota,
@@ -1627,7 +1638,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const { claim, correction, context, model, effort } = (await parseJsonBody(req)) ?? {};
+      const { claim, correction, context, model, effort, verify: verifyAsked } = (await parseJsonBody(req)) ?? {};
       if (typeof claim !== "string" || !claim.trim() || claim.length > 2000) {
         throw new CheckError("bad_request", "claim must be a non-empty string of at most 2000 characters");
       }
@@ -1652,27 +1663,34 @@ const server = http.createServer(async (req, res) => {
        * A local server keeps the global counter, as before. */
       const { ent, callerId: who } = gate;
       const perCaller = ent.enforced && isDailyQuotaKey(who);
+      /* `verify: true`: the extension looking a claim up on its own, before
+       * it flags it (owner, 2026-10-23). The same search, metered apart from
+       * the writer's own: VERIFY_LIMITS for the day and month, and windows of
+       * its own (verifyCounter, callerVerifyRate). Never on the try-out. */
+      const verify = verifyAsked === true && !gate.demo;
       //   - demo pool (the try-out): its own window too, so the public page
       //     never takes the hour the store users share.
-      const globalCounter = gate.pool === "beta" ? betaWebSearchCounter : gate.pool === "paid" ? null : gate.pool === "demo" ? demoWebSearchCounter : webSearchCounter;
+      const globalCounter = gate.pool === "paid" ? null : verify ? verifyCounter : gate.pool === "beta" ? betaWebSearchCounter : gate.pool === "demo" ? demoWebSearchCounter : webSearchCounter;
+      const callerRate = verify ? callerVerifyRate : callerSearchRate;
       if (gate.demo) demoAdmit(gate, { context, claim, correction }); // the try-out's caps and allowance
       if (globalCounter && !globalCounter.ok()) {
         throw new CheckError("rate_limit", gate.demo ? DEMO_MESSAGES.searchesBusy : "Web-search hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
       }
-      if (perCaller && !callerSearchRate.ok(who)) {
+      if (perCaller && !callerRate.ok(who)) {
         throw new CheckError("rate_limit", "Source search is limited to a few dozen an hour — try again later.", { status: 429, retryAfter: 600 });
       }
 
       // The day AND month source quota (SOURCE_LIMITS, at the effective
       // plan), one count with the desktop's /api/find-sources. Keyed on
-      // callerId, so an anonymous extension user is metered too.
-      const quota = sourceSearchQuota(ent, who);
-      if (!quota.allowed) throw quotaRefusal(ent, who, sourceLimitMessage(quota));
-      recordSourceSearch(ent, who); // before the call, not after
+      // callerId, so an anonymous extension user is metered too. A lookup
+      // draws on VERIFY_LIMITS instead.
+      const quota = verify ? verifyQuota(ent, who) : sourceSearchQuota(ent, who);
+      if (!quota.allowed) throw quotaRefusal(ent, who, verify ? verifyLimitMessage(quota) : sourceLimitMessage(quota));
+      if (verify) recordVerify(ent, who); else recordSourceSearch(ent, who); // before the call, not after
       if (gate.demo) demoRecord(gate); // likewise
 
       globalCounter?.stamp(); // before the call, not after
-      if (perCaller) callerSearchRate.stamp(who);
+      if (perCaller) callerRate.stamp(who);
       const started = Date.now();
       const waited = Math.round(performance.now() - arrived); // the body, the account, the gates
       // Hosted: the fast model at LOW effort (shared/plan.js ROUTE_EFFORT
@@ -1738,7 +1756,7 @@ const server = http.createServer(async (req, res) => {
       const r = Object.entries(reads ?? {}).map(([k, v]) => `${k}:${v}`).join(",") || "none";
       // Pages fetched, and read: completing and the receipts share one fetch (Codex review S2).
       const p = `fetched:${pages?.fetched ?? 0},reads:${pages?.reads ?? 0}`;
-      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started} stages=${t} reads=${r} pages=${p}`);
+      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} verify=${verify ? 1 : 0} ms=${Date.now() - started} stages=${t} reads=${r} pages=${p}`);
       const backed = result.sources.some((s) => s?.stance === "supports" && s?.verified === true);
       tallyStages(url.pathname, gate.pool, timing, { reads, backed });
       // The tool fee is most of this route's cost and is invisible in the

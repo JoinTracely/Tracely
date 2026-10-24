@@ -1,9 +1,11 @@
 # Tracely Privacy Policy
 
-*Effective: 22 October 2026. This update says that the desktop app's results
-are kept on our server for 1 to 7 days and then deleted (see "What we keep,
-and for how long"); before it they were kept with no end date, which this
-policy did not say. The 3 October 2026 version added the site icons shown
+*Effective: 23 October 2026. This update says that the extension looks up a
+claim before it flags it as needing evidence or a citation (see "Finding
+sources"), and counts those lookups. The 22 October 2026 version said that
+the desktop app's results are kept on our server for 1 to 7 days and then
+deleted (see "What we keep, and for how long"); before it they were kept
+with no end date, which this policy did not say. The 3 October 2026 version added the site icons shown
 beside sources, loaded from Google's favicon service (see **Google** under
 "Who else processes your data"), and said when text is sent for checking: a
 few seconds after a sentence is written or changed, rather than on a
@@ -56,7 +58,11 @@ training; our server holds it only for the seconds the check takes.
 **Finding sources.** When you ask for sources (or turn on automatic sources in
 the widget), the flagged sentence, its suggested correction and up to 6,000
 characters of surrounding text are sent to our server and to OpenAI, whose
-web-search tool may run searches derived from that sentence.
+web-search tool may run searches derived from that sentence. Tracely also
+looks up a claim the check would mark as needing evidence or a citation
+before it flags it (up to 5 a check), sending the same, without the
+suggested correction. Settings → Checking → "Look for evidence
+automatically" turns that off.
 
 **Citing a pasted URL.** A URL you paste into the widget is fetched by **our
 server** (not your browser) to read its title, author and date. The site you
@@ -113,7 +119,7 @@ On our server:
 
 | what | keyed by | kept |
 |---|---|---|
-| Usage counts (checks, source searches, flow checks and resume reviews per day and month; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
+| Usage counts (checks, source searches, automatic lookups, flow checks and resume reviews per day and month; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
 | Try-out counts (checks, source searches and reviews used on the try-out page that day) | a hash of the try-out cookie's random id | 13 months, then deleted automatically |
 | Account link: Stripe customer id, plan, the email used to pay | account id | while the account exists |
 | Payment events from Stripe: event id, type, plan, outcome | account id | while the account exists; the payer's name, address and phone are removed before the event is stored |

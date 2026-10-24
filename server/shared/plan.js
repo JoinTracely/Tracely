@@ -326,6 +326,21 @@ export const SOURCE_LIMITS = {
 export const FREE_DAILY_SOURCE_SEARCHES = SOURCE_LIMITS.free.day;
 export const FREE_MONTHLY_SOURCE_SEARCHES = SOURCE_LIMITS.free.month;
 
+/* Lookups per plan, per day and per month: the same search, run by the
+ * extension on its own to decide a claim before flagging it (owner,
+ * 2026-10-23: "look them up before flagging them"). A request says so with
+ * `verify: true` on /api/sources. They draw on this allowance, never on the
+ * writer's own "Find a source" searches (SOURCE_LIMITS), so checking an
+ * essay does not use up the searches the writer asks for. The extension runs
+ * at most 5 per check. Free's 10 a day was the owner's figure; Student and
+ * Pro are proportional, and every paid call still counts towards the plan's
+ * fair-use limit (FAIR_USE), which bounds what they cost. */
+export const VERIFY_LIMITS = {
+  free: { day: 10, month: 100 },
+  student: { day: 30, month: 300 },
+  pro: { day: 50, month: 500 },
+};
+
 /* Flow checks (/api/flow) per day, a usage kind of their own. The shipped
  * extension re-ran flow up to ~72 times an hour while someone typed at the end
  * of a document (its structure signature includes each paragraph's closing
@@ -430,6 +445,14 @@ export function dailySourceSearchLimit(plan) {
 /** Source searches a plan may run this month (usageMonth). */
 export function monthlySourceSearchLimit(plan) {
   return SOURCE_LIMITS[normalizePlan(plan)].month;
+}
+
+/** Lookups (verify: true) a plan may run today, and this month (VERIFY_LIMITS). */
+export function dailyVerifyLimit(plan) {
+  return VERIFY_LIMITS[normalizePlan(plan)].day;
+}
+export function monthlyVerifyLimit(plan) {
+  return VERIFY_LIMITS[normalizePlan(plan)].month;
 }
 
 const pad2 = (n) => String(n).padStart(2, "0");

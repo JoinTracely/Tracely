@@ -281,6 +281,11 @@ checks is about an hour of continuous typing and costs at most ~35 cents
 cold. Source searches are metered on EVERY plan, per day and per month
 (`SOURCE_LIMITS`: 5/40 Free, 20/100 Student, 40/250 Pro), one count shared by
 `/api/sources` and `/api/find-sources`; flow checks per day (`DAILY_FLOW`).
+The extension's own lookups (`/api/sources` with `verify: true`: a claim
+looked up before it is flagged, owner 2026-10-23) are a count of their own,
+usage kind `verify_search` (`VERIFY_LIMITS`: 10/100 Free, 30/300 Student,
+50/500 Pro), so they never spend the writer's "Find a source" searches. A
+refused lookup is never shown: the claim is simply not flagged.
 Paid plans have no daily check or AI-action limit; they are bounded by their
 per-account fair-use limit (`FAIR_USE`, above) and by the pools.
 
@@ -292,7 +297,11 @@ an identified caller's source searches have their own hourly window (25), on
 top of the pool's global one: every caller the extension pool pays for, install
 ids included, shares the 15/hour counter (an install id rotates freely and that
 pool holds no reservation); beta has its own; the paid pool, which reserves
-every call, has none. `/api/compare-source` ("Find the cited work", a Crossref
+every call, has none. Lookups (`verify: true`) have windows of their own,
+`SPEND.verifySearchesPerHour` (120, every free and beta caller together) and
+`callerVerifySearchesPerHour` (20), because lookups alone would fill the 15 in
+minutes. They still reserve against their pool's day like any search, so a
+spent day stops them, and the search's log line says `verify=1`. `/api/compare-source` ("Find the cited work", a Crossref
 and Open Library lookup with no model call) has a window of its own, 10 a
 minute per caller (`callerLookupsPerMinute`) and 60 a minute for all callers
 together (`globalLookupsPerMinute`, since an install id rotates freely and

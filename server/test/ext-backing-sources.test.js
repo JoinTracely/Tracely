@@ -124,7 +124,9 @@ test("the unread sources: collapsed by default, Open only — no Cite in doc, no
 // ── wiring ────────────────────────────────────────────────────────────────
 
 test("wired: every search result and every saved list goes through it, in both modes", () => {
-  assert.equal((SRC.match(/const \{ list, unbacked, unread, partial \} = backingSources\(data\.sources, f\?\.verdict\);\n\s+sourcesMap\.set\(hash, \{ loading: false, list, unbacked, unread, partial, copiedUrl: null \}\);/g) || []).length, 2);
+  // `verdict`: the sentence's, or what its lookup made it (lookedUp), so a refuted claim keeps its refuting sources.
+  assert.equal((SRC.match(/const \{ list, unbacked, unread, partial \} = backingSources\(data\.sources, verdict\);\n\s+sourcesMap\.set\(hash, \{ loading: false, list, unbacked, unread, partial, copiedUrl: null \}\);/g) || []).length, 2);
+  assert.equal((SRC.match(/let verdict = f\?\.verdict;\n\s+if \(lookup && cache\.has\(hash\)\) \{\n\s+const next = lookedUp\(cache\.get\(hash\), lookupOutcome\(data\.sources\), data\.sources\);/g) || []).length, 2, "both modes");
   assert.match(SRC, /list: backingSources\(st\.list, cache\.get\(h\)\?\.verdict\)\.list, unread: backingSources\(st\.unread, cache\.get\(h\)\?\.verdict\)\.unread/, "lists saved by an older build are filtered too");
   assert.match(SRC, /\.map\(\(\[h, st\]\) => \[h, \{ list: \(st\.list \?\? \[\]\)\.slice\(0, 5\), unread: \(st\.unread \?\? \[\]\)\.slice\(0, 5\), partial: st\.partial \?\? null, citedUrl/, "and the unread ones are saved beside them, and a partial source");
   assert.equal((SRC.match(/\} else if \(\(st\?\.unbacked \|\| st\?\.unread\?\.length\) && !st\.list\?\.length\) \{/g) || []).length, 2, "both panels");

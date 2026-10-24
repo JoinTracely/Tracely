@@ -32,6 +32,8 @@ import {
   nextMonthStart,
   dailySourceSearchLimit,
   monthlySourceSearchLimit,
+  dailyVerifyLimit,
+  monthlyVerifyLimit,
   dailyCheckLimit,
   dailyAiLimit,
   dailyFlowLimit,
@@ -210,6 +212,7 @@ export function withBetaGrant(ent, req, env = process.env) {
 // no account to meter and Sam running it with no sign-in must be unaffected.
 
 const SOURCE_SEARCH_KIND = "source_search";
+const VERIFY_KIND = "verify_search"; // the extension's own lookups (VERIFY_LIMITS) — never the writer's searches
 const CHECK_KIND = "check";
 const AI_KIND = "ai"; // the desktop's app routes — never shares a count with "check"
 const FLOW_KIND = "flow";
@@ -358,28 +361,44 @@ function dailyQuota(ent, id, kind, limitFor, at) {
  * `allowed` needs both. `blockedBy` says which ran out — "month" wins when
  * both have, since it resets later — and `resetsOn` ("YYYY-MM-DD") when.
  */
-export function sourceSearchQuota(ent, id, at = Date.now()) {
+/* A day AND month allowance of searches under `kind`: the writer's source
+ * searches, or the extension's own lookups. */
+function searchQuota(ent, id, at, kind, dayLimit, monthLimitOf) {
   const day = usageDay(at);
   const month = usageMonth(at);
   if (!metered(ent, id)) {
     return { limit: null, used: 0, allowed: true, day, month, monthLimit: null, monthUsed: 0, blockedBy: null, resetsOn: null };
   }
   const plan = effectivePlan(ent, id, at);
-  const limit = dailySourceSearchLimit(plan);
-  const monthLimit = monthlySourceSearchLimit(plan);
-  const used = usageCount(id, day, SOURCE_SEARCH_KIND);
-  const monthUsed = usageCount(id, month, SOURCE_SEARCH_KIND);
+  const limit = dayLimit(plan);
+  const monthLimit = monthLimitOf(plan);
+  const used = usageCount(id, day, kind);
+  const monthUsed = usageCount(id, month, kind);
   const blockedBy = !withinDailyLimit(monthUsed, monthLimit) ? "month" : !withinDailyLimit(used, limit) ? "day" : null;
   const resetsOn = blockedBy === "month" ? nextMonthStart(at) : blockedBy === "day" ? nextUsageDay(at) : null;
   return { limit, used, allowed: blockedBy === null, day, month, monthLimit, monthUsed, blockedBy, resetsOn };
 }
+function recordSearch(q, id, kind) {
+  if (q.limit === null) return 0;
+  usageBump(id, q.month, kind);
+  return usageBump(id, q.day, kind);
+}
+
+export function sourceSearchQuota(ent, id, at = Date.now()) {
+  return searchQuota(ent, id, at, SOURCE_SEARCH_KIND, dailySourceSearchLimit, monthlySourceSearchLimit);
+}
 
 /** Stamped BEFORE the search, like every other counter here: bumps the day row and the month row, returns the new DAY count. */
 export function recordSourceSearch(ent, id, at = Date.now()) {
-  const q = sourceSearchQuota(ent, id, at);
-  if (q.limit === null) return 0;
-  usageBump(id, q.month, SOURCE_SEARCH_KIND);
-  return usageBump(id, q.day, SOURCE_SEARCH_KIND);
+  return recordSearch(sourceSearchQuota(ent, id, at), id, SOURCE_SEARCH_KIND);
+}
+
+/** The extension's own lookups (/api/sources with verify: true), VERIFY_LIMITS: a count of their own. */
+export function verifyQuota(ent, id, at = Date.now()) {
+  return searchQuota(ent, id, at, VERIFY_KIND, dailyVerifyLimit, monthlyVerifyLimit);
+}
+export function recordVerify(ent, id, at = Date.now()) {
+  return recordSearch(verifyQuota(ent, id, at), id, VERIFY_KIND);
 }
 
 /** The same, for checks — the hot path, one per 10s while someone types. */
