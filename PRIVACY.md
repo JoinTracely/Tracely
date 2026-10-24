@@ -1,8 +1,10 @@
 # Tracely Privacy Policy
 
-*Effective: 23 October 2026. This update says that the extension looks up a
-claim before it flags it as needing evidence or a citation (see "Finding
-sources"), and counts those lookups. The 22 October 2026 version said that
+*Effective: 24 October 2026. This update says that a lookup carries a few
+labels about itself, never text, and that Help's diagnostics hold a few
+counts (see "Finding sources" and "On your device"). The 23 October 2026
+version said that the extension looks up a claim before it flags it as
+needing evidence or a citation, and counts those lookups. The 22 October 2026 version said that
 the desktop app's results are kept on our server for 1 to 7 days and then
 deleted (see "What we keep, and for how long"); before it they were kept
 with no end date, which this policy did not say. The 3 October 2026 version added the site icons shown
@@ -61,8 +63,12 @@ characters of surrounding text are sent to our server and to OpenAI, whose
 web-search tool may run searches derived from that sentence. Tracely also
 looks up a claim the check would mark as needing evidence or a citation
 before it flags it (up to 5 a check), sending the same, without the
-suggested correction. Settings → Checking → "Look for evidence
-automatically" turns that off.
+suggested correction. With each such lookup it also sends a few labels,
+never any text: what kind of claim it is, its place in the queue, whether
+the document already had sources for a related sentence, and whether
+another document on your computer had already looked it up. Our server
+keeps only hourly totals of those labels. Settings → Checking → "Look for
+evidence automatically" turns that off.
 
 **Citing a pasted URL.** A URL you paste into the widget is fetched by **our
 server** (not your browser) to read its title, author and date. The site you
@@ -138,7 +144,10 @@ On your device, in the extension's storage: your settings, the sites you have
 switched on, whether Docs is on, the install id, your session token and plan
 details. Since version 2.21.62 also:
 - the outcome of the last 20 edits Tracely made in a Doc, for Help's
-  diagnostics, without any of the document's text;
+  diagnostics, without any of the document's text, and since 2.21.74 a few
+  counts from the last Doc you opened (how many sentences were checked, how
+  many another of your Docs had already checked, how many were gone again
+  soon after), never which sentences;
 - since 2.21.64, a list of the Google Docs it has checked: each one's title,
   link, how many findings were open, and your own settings for it;
 - the sentences you told it never to flag again.

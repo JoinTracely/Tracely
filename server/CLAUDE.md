@@ -271,6 +271,29 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
     `/api/verify-sources` reports the verifier's three stages. Numbers and
     fixed labels only, never a URL. On SIGTERM these lines print after the
     drain, so the searches that finish during it are counted.
+  - **The cost counters** (2026-10-24). They decide whether to build
+    "judge known sources first" and cross-document reuse, and change nothing
+    a caller gets:
+    - **`[tracely] searches route=/api/sources pool=… mode=lookup|search|correction`**
+      (`lib/searchTally.js`): searches, failed, every cent charged (billed
+      failures included), how many ended backed, refuted, unverified or
+      unread (`searchOutcome`, the extension's `lookupOutcome`), and
+      `perBacked`, the cost over backed in the same pool and mode.
+    - **`[tracely] lookup-tags pool=…`**: per label the extension sends with
+      a lookup (`lookupTags`, never text), `n/backed/refuted/unverified`.
+      The labels are `rank` (lookupRank 0-3), `pick` (1-5), `doc`
+      (none/some/related: whether the Doc already had sources) and
+      `elsewhere` (looked/checked/no: another Doc on that computer).
+      Anything else is kept as `?`.
+    - **`[tracely] candidates scope=…`** (`lib/seenClaims.js` `noteBucket`):
+      how often a claim's bucket (`claimFeatures`) was searched before, by
+      another caller, and by another caller whose search ended backed. That
+      is an upper bound on what a shared candidate cache could serve.
+    - **`[tracely] dupes route=/api/check|/api/sources`**
+      (`lib/dupeTally.js`): the same request from the same identified caller
+      while one runs, and what those cost.
+    Each lookup's own log line carries `tags=`. Tests:
+    `test/search-tally.test.js`, `test/seenClaims.test.js`.
   - **`TRACELY_PROMPT_CACHE_KEY=caller`** (off by default) sends a hashed
     per-caller `prompt_cache_key` on `/api/check`. It changes where a call
     runs, never what it answers. It is off because a cache write costs more

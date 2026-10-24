@@ -419,6 +419,17 @@ quiet cite button) for a claim that checks out but cites nothing. The
 - **Off:** Settings → Checking → "Look for evidence automatically"
   (`prefs.autoEvidence`) brings back the marks as they were, unsearched, and
   `FEATURES.lookupFirst` switches the whole of it.
+- **Its labels** (2.21.74, the cost counters): each lookup also sends
+  `lookupTags` (`lookupTagsFor`), never text, which the server counts
+  (server/CLAUDE.md, "The cost counters"):
+  - `rank` (lookupRank 0-3) and `pick` (its place among the check's picks, 1-5);
+  - `doc` (`docSourcesTag`: none, some, or related when another sentence
+    with sources shares a figure and a longer word, or three longer words);
+  - `elsewhere` (Docs only, `elsewhereTag`: whether another Doc on this
+    computer looked the sentence up or only checked it).
+  They change nothing the writer sees. They decide whether judging the
+  sources a document already has, and remembering lookups across documents,
+  are worth building. Tests: `server/test/ext-cost-counters.test.js`.
 
 Not covered: a signed-out writer is never looked up (`needsSignIn`), so
 their "Needs evidence" claims are simply not flagged. Not checked in a
@@ -1091,7 +1102,14 @@ General (`SECTION_MOVED`).
   bump that changes what a writer sees), the keys, Copy diagnostics and
   Email us. Diagnostics hold the version, browser, server, plan, settings,
   and what the last 20 in-doc edits answered (`noteDiag`: step, path, ok,
-  the failed check). They never hold a word of the document.
+  the failed check). They never hold a word of the document. Since 2.21.74
+  they also hold the last Docs page's cost counters (`diagCounts`), counts
+  only:
+  - sentences sent to be checked, and how many another Doc on this computer
+    had already checked (`checkedElsewhere`, from this origin's saved
+    checks: `elsewhereTag`);
+  - how many were gone again within 10 s, a minute or five (`noteChurn`);
+  - lookups started, and how many lost their sentence within a minute.
 
 **The widget reads one storage key, `prefs`**, as `{ pausedUntil,
 launcherSide, panelOpen, clearedAt }` ("Settings → the widget" in

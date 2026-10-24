@@ -217,6 +217,18 @@ test("a lookup (verify: true) has its own allowance: Free's 10 a day, and the wr
   assert.equal((await sources("lk-pro-51", { token: "tok-pro-lookups" }, { verify: true })).status, 429);
 });
 
+test("a lookup's labels (lookupTags, the cost counters) are read only as fixed values: junk never fails the search, and the search is the same", async () => {
+  const token = "tok-pro-lookup-tags";
+  const ok = await sources("lk-tags", { token }, { verify: true, lookupTags: { rank: "0", pick: "1", doc: "related", elsewhere: "looked" } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const junk = await sources("lk-tags-junk", { token }, { verify: true, lookupTags: { rank: { a: 1 }, pick: "x".repeat(5000), doc: ["related"], elsewhere: null } });
+  assert.equal(junk.status, 200, "labels outside the fixed values are dropped, never refused");
+  const notObject = await sources("lk-tags-str", { token }, { verify: true, lookupTags: "a student's sentence" });
+  assert.equal(notObject.status, 200);
+  assert.deepEqual([ok, junk, notObject].map((r) => r.body.sources?.length), [1, 1, 1], "the same answer as any lookup");
+  assert.deepEqual(openaiLog("lk-tags").map((c) => [c.model, c.webSearch]), [[LUNA, true]], "one search, as before");
+});
+
 test("the monthly limit: refused with the month's copy even with searches left today, on both routes", async () => {
   const cases = [["free", 40], ["student", 100], ["pro", 250]];
   for (const [plan, monthLimit] of cases) {

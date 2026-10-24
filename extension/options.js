@@ -767,6 +767,8 @@ function diagnostics(cfg) {
     server: $("serverStatusText").textContent, plan: account.plan, signedIn: account.signedIn, beta: account.beta,
     docsEnabled: cfg.docsEnabled === true, autoCheckSites: (cfg.enabledSites ?? []).length, prefs: cfg.prefs ?? {},
     lastEdits: cfg.diag?.edits ?? [],
+    // The last Docs page's cost counters (content.js noteDiagCount): counts only, never a sentence.
+    counts: cfg.diag?.counts ?? null,
   };
 }
 $("copyDiag").addEventListener("click", () => {

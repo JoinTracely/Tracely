@@ -744,8 +744,18 @@
   function noteDiag(entry) {
     diagEdits.push({ at: new Date().toISOString(), ...entry });
     while (diagEdits.length > 20) diagEdits.shift();
-    storageSet({ diag: { edits: diagEdits } });
+    saveDiag();
   }
+  /* And this page's cost counters since it loaded (Docs mode's noteChurn and
+     noteSentForCheck; cost counters, 2026-10-24): counts only, never which
+     sentence. They stay on this computer unless the writer copies them. */
+  const diagCounts = { since: new Date().toISOString() };
+  let diagSaveTmr = 0;
+  function noteDiagCount(name, n = 1) {
+    diagCounts[name] = (diagCounts[name] ?? 0) + n;
+    if (!diagSaveTmr) diagSaveTmr = setTimeout(() => { diagSaveTmr = 0; saveDiag(); }, 10_000);
+  }
+  function saveDiag() { storageSet({ diag: { edits: diagEdits, counts: diagCounts } }); }
 
   /* ── "Explain in depth" (2.20.0) ─────────────────────────────────────────
      Pro's Thorough allowance, one flagged sentence at a time: /api/check with
@@ -3609,6 +3619,36 @@
     }
     return out;
   }
+  /* What a lookup says about itself to the server (`lookupTags`, counted in
+     server/lib/searchTally.js; cost counters, 2026-10-24): never text, only
+     labels. Whether this document already had sources for another sentence
+     ("some") or for a related one ("related": a shared figure and a longer
+     word, or three longer words), which says how often judging the sources a
+     document already has could spare a search. A tag, never a decision. */
+  // After the endings go: "according" is "accord", "studies" is "studi", "students" is "student".
+  const CLAIM_WORD_STOP = new Set(["because", "however", "therefore", "through", "between", "people", "student", "school", "accord", "should", "research", "studi", "within", "without"]);
+  function claimWords(text) {
+    const s = String(text ?? "").toLowerCase();
+    return {
+      figures: new Set(s.match(/\d[\d,.]*%?/g) ?? []),
+      words: new Set((s.match(/\p{L}{6,}/gu) ?? []).map((w) => w.replace(/(?:ing|ed|es|s)$/, "")).filter((w) => !CLAIM_WORD_STOP.has(w))),
+    };
+  }
+  function relatedClaims(a, b) {
+    const x = claimWords(a), y = claimWords(b);
+    const shared = [...x.words].filter((w) => y.words.has(w)).length;
+    return ([...x.figures].some((f) => y.figures.has(f)) && shared >= 1) || shared >= 3;
+  }
+  function docSourcesTag(hash, text, sourcesMap, segments) {
+    let some = false;
+    for (const [h, st] of sourcesMap) {
+      if (h === hash || !(st?.list?.length || st?.partial || st?.unread?.length)) continue;
+      some = true;
+      const other = segments.find((s) => s.hash === h)?.text;
+      if (other && relatedClaims(text, other)) return "related";
+    }
+    return some ? "some" : "none";
+  }
   /* Paced like a person pressing: at most `perMinute` lookups start in any
      minute. `starts` is the caller's list of start times; returns how long to
      wait before the next may start. */
@@ -6265,6 +6305,53 @@
       return out;
     }
 
+    /* The cost counters on this computer (Copy diagnostics, noteDiagCount;
+       2026-10-24): of the sentences sent to be checked, how many another Doc
+       here had already checked, and how many were gone again within 10 s, a
+       minute or five minutes; of the lookups, how many lost their sentence
+       within a minute. `elsewhereTag` also tags each lookup (lookupTagsFor):
+       whether another Doc on this computer looked the sentence up ("looked")
+       or only checked it ("checked"). It reads this origin's saved checks
+       once a page; they hold sentence hashes and verdicts, never text. */
+    let elsewhere = null; // { looked, checked }: other Docs' saved sentence hashes
+    function elsewhereTag(hash) {
+      if (!elsewhere) {
+        elsewhere = { looked: new Set(), checked: new Set() };
+        try {
+          const prefix = `tracely.widget.vcache${CACHE_GEN}.`;
+          for (const k of Object.keys(localStorage)) {
+            if (!k.startsWith(prefix) || k === VCACHE_KEY) continue;
+            const rows = jsonParse(lsGet(k) ?? "[]", []);
+            for (const row of Array.isArray(rows) ? rows : []) {
+              if (Array.isArray(row) && typeof row[0] === "string") (row[1]?.lookup ? elsewhere.looked : elsewhere.checked).add(row[0]);
+            }
+          }
+        } catch { /* storage denied: nothing elsewhere */ }
+      }
+      return elsewhere.looked.has(hash) ? "looked" : elsewhere.checked.has(hash) ? "checked" : "no";
+    }
+    const sentAt = new Map(); // hash → when it was sent to be checked
+    const lookedAt = new Map(); // hash → when its lookup started
+    function noteSentForCheck(list, now = Date.now()) {
+      for (const s of list) {
+        noteDiagCount("checked");
+        if (elsewhereTag(s.hash) !== "no") noteDiagCount("checkedElsewhere");
+        sentAt.set(s.hash, now);
+      }
+    }
+    function noteLookupStarted(hash, now = Date.now()) { noteDiagCount("lookups"); lookedAt.set(hash, now); }
+    function noteChurn(now = Date.now()) {
+      const live = new Set(segments.map((s) => s.hash));
+      for (const [h, t] of sentAt) {
+        if (!live.has(h)) noteDiagCount(now - t < 10_000 ? "goneIn10s" : now - t < 60_000 ? "goneIn60s" : "goneIn5m");
+        if (!live.has(h) || now - t >= 300_000) sentAt.delete(h);
+      }
+      for (const [h, t] of lookedAt) {
+        if (!live.has(h) && now - t < 60_000) noteDiagCount("lookupGoneIn60s");
+        if (!live.has(h) || now - t >= 60_000) lookedAt.delete(h);
+      }
+    }
+
     async function cycle() {
       if (orphaned || inflight || document.hidden) return;
       if (!docsOn || docQuiet()) return; // nothing leaves the page until Docs is turned on, while Tracely is paused, or in a Doc it never checks
@@ -6289,6 +6376,7 @@
         citedLater = coveredByLaterCitation(docText, segments);
         sourceAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(docText, segments) : new Map();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
+        noteChurn(readAt); // Copy diagnostics: checked sentences gone again since the last read
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
         sent = todo;
         settings.citationStyle = citeStyleFor(docText, docPref(DOC_ID).style); // this Doc's, else Settings', else the way the doc already cites
@@ -6297,6 +6385,7 @@
           statusMsg = `checking ${todo.length}…`;
           render();
           sentencesChecked += todo.length;
+          noteSentForCheck(todo, readAt);
           const data = await api("/api/check", {
             text: docText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
@@ -9235,7 +9324,8 @@
           // The model only: the server ignores a client's effort on searches
           // and runs them at low (shared/plan.js ROUTE_EFFORT).
           model: CHECK_MODEL,
-          ...(lookup ? { verify: true } : {}), // a lookup: the server's VERIFY_LIMITS, never the writer's searches
+          // A lookup: the server's VERIFY_LIMITS, never the writer's searches; and its labels (lookupTagsFor), never text.
+          ...(lookup ? { verify: true, lookupTags: arguments[2]?.tags ?? undefined } : {}),
         }, onEvent);
         // A lookup decides the verdict first (lookedUp), so a refuted claim's
         // list keeps the sources that refute it (backingSources).
@@ -9417,6 +9507,10 @@
       }
       return out;
     }
+    // What a lookup tells the server about itself (searchTally.js): its kind, its place among the picks, and what this Doc and this computer already had.
+    function lookupTagsFor(hash, text, pick) {
+      return { rank: String(lookupRank(text)), pick: String(pick), doc: docSourcesTag(hash, text, sourcesMap, segments), elsewhere: elsewhereTag(hash) };
+    }
     // Up to LOOKUP.perCheck of them, one at a time, paced, the writer's own search always first.
     async function lookUpClaims() {
       if (lookingUp) { lookupAgain = true; return; } // a check landed meanwhile: its claims are next
@@ -9425,7 +9519,7 @@
       try {
         do {
           lookupAgain = false;
-          for (const { hash } of lookupPicks(lookupCandidates())) {
+          for (const [at, { hash, text }] of lookupPicks(lookupCandidates()).entries()) {
             if (lookupsOut || needsSignIn()) break;
             for (let i = 0; sourcesInflight && i < 120; i++) await new Promise((r) => setTimeout(r, 500));
             const f = cache.get(hash);
@@ -9436,7 +9530,8 @@
             for (let w = lookupWaitMs(lookupStarts); w > 0; w = lookupWaitMs(lookupStarts)) await new Promise((r) => setTimeout(r, w));
             lookupStarts.push(Date.now());
             if (lookupStarts.length > 10) lookupStarts.shift();
-            await fetchSources(hash, true, { lookup: true });
+            noteLookupStarted(hash);
+            await fetchSources(hash, true, { lookup: true, tags: lookupTagsFor(hash, text, at + 1) });
             if (!cache.get(hash)?.lookup) lookupTried.set(hash, Date.now()); // failed: a later check may look again
             render();
           }
@@ -13700,7 +13795,8 @@
           // The model only: the server ignores a client's effort on searches
           // and runs them at low (shared/plan.js ROUTE_EFFORT).
           model: CHECK_MODEL,
-          ...(lookup ? { verify: true } : {}), // a lookup: the server's VERIFY_LIMITS, never the writer's searches
+          // A lookup: the server's VERIFY_LIMITS, never the writer's searches; and its labels (lookupTagsFor), never text.
+          ...(lookup ? { verify: true, lookupTags: arguments[2]?.tags ?? undefined } : {}),
         });
         // A lookup decides the verdict first (lookedUp), as in Docs mode.
         let verdict = f?.verdict;
@@ -13752,6 +13848,10 @@
       }
       return out;
     }
+    // As in Docs mode, without "elsewhere": a field's checks are kept per site, not per document.
+    function lookupTagsFor(hash, text, pick) {
+      return { rank: String(lookupRank(text)), pick: String(pick), doc: docSourcesTag(hash, text, sourcesMap, segments) };
+    }
     async function lookUpClaims() {
       if (lookingUp) { lookupAgain = true; return; }
       if (lookupsOut || needsSignIn()) return;
@@ -13759,7 +13859,7 @@
       try {
         do {
           lookupAgain = false;
-          for (const { hash } of lookupPicks(lookupCandidates())) {
+          for (const [at, { hash, text }] of lookupPicks(lookupCandidates()).entries()) {
             if (lookupsOut || needsSignIn()) break;
             for (let i = 0; sourcesInflight && i < 120; i++) await new Promise((r) => setTimeout(r, 500));
             const f = cache.get(hash);
@@ -13769,7 +13869,7 @@
             for (let w = lookupWaitMs(lookupStarts); w > 0; w = lookupWaitMs(lookupStarts)) await new Promise((r) => setTimeout(r, w));
             lookupStarts.push(Date.now());
             if (lookupStarts.length > 10) lookupStarts.shift();
-            await fetchSources(hash, true, { lookup: true });
+            await fetchSources(hash, true, { lookup: true, tags: lookupTagsFor(hash, text, at + 1) });
             if (!cache.get(hash)?.lookup) lookupTried.set(hash, Date.now());
             render();
           }
