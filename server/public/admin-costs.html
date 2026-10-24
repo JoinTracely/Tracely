@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Tracely costs</title>
+<style>
+  /* What each action Tracely runs has cost (server/lib/costLedger.js). The
+     page holds nothing: it asks for the admin token, keeps it in this tab
+     only (sessionStorage), and reads /api/admin/costs. */
+  :root {
+    --bg: #fff5ed; --card: #ffffff; --ink: #141414; --muted: #666666; --line: rgba(0, 0, 0, 0.08);
+    --accent: #ff5722; --bar: #ff8a50; --bad: #d93636; --soft: rgba(255, 87, 34, 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141210; --card: #1e1b18; --ink: #f3efea; --muted: #a39d96; --line: rgba(255, 255, 255, 0.1); --soft: rgba(255, 138, 80, 0.12); }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font: 15px/1.5 Inter, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { margin: 0; font-size: 30px; line-height: 1.15; letter-spacing: -0.5px; }
+  h2 { margin: 0 0 12px; font-size: 18px; }
+  .sub { margin: 6px 0 0; color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 24px; }
+  button, select, input { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 8px 14px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button[aria-pressed="true"] { background: var(--soft); border-color: var(--accent); font-weight: 600; }
+  input[type="password"] { width: min(420px, 100%); padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile .k { color: var(--muted); font-size: 13px; }
+  .tile .v { font-size: 26px; font-weight: 700; letter-spacing: -0.4px; margin-top: 2px; }
+  .tile .n { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 8px 10px; border-top: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; border-top: 0; }
+  th:first-child, td:first-child { text-align: left; }
+  td .key { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .share { display: inline-block; height: 6px; border-radius: 3px; background: var(--bar); vertical-align: middle; margin-right: 6px; }
+  .bad { color: var(--bad); }
+  .stack { display: grid; gap: 16px; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 18px; }
+  .err { color: var(--bad); margin-top: 10px; min-height: 1.5em; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="head">
+    <div>
+      <h1>Tracely costs</h1>
+      <p class="sub">What each check, lookup and search has cost, from the server's own records.</p>
+    </div>
+    <div class="row" id="controls" hidden>
+      <span id="ranges" class="row"></span>
+      <button id="refresh" type="button">Refresh</button>
+      <button id="signout" type="button">Forget token</button>
+    </div>
+  </div>
+
+  <form id="login" class="card" autocomplete="off">
+    <h2>Admin token</h2>
+    <p class="sub" style="margin-top:0">The value of TRACELY_ADMIN_TOKEN in Railway. It stays in this tab and is never saved.</p>
+    <div class="row" style="margin-top:12px">
+      <input id="token" type="password" placeholder="Paste the token" aria-label="Admin token" required>
+      <button class="primary" type="submit">Show costs</button>
+    </div>
+    <div class="err" id="loginErr" role="alert"></div>
+  </form>
+
+  <div id="report" class="stack" hidden>
+    <div class="tiles" id="tiles"></div>
+    <section class="card">
+      <h2>By action</h2>
+      <div class="scroll"><table id="actions"></table></div>
+    </section>
+    <section class="card">
+      <h2>By day</h2>
+      <div class="scroll" id="days"></div>
+    </section>
+    <section class="card">
+      <h2>Latest actions</h2>
+      <div class="scroll"><table id="recent"></table></div>
+    </section>
+    <p class="note" id="note"></p>
+  </div>
+</main>
+<script>
+(() => {
+  "use strict";
+  const KEY = "tracely.adminToken";
+  const RANGES = [[1, "Today"], [7, "7 days"], [30, "30 days"], [90, "90 days"]];
+  // What each action is, in words. An action the page does not know shows its key.
+  const LABELS = {
+    "check": "Check sentences",
+    "sources:lookup": "Lookup before flagging",
+    "sources:search": "Find a source",
+    "sources:correction": "Find a source for a fix",
+    "kind": "Kind of writing",
+    "flow": "Flow",
+    "review": "Writing review",
+    "cite-url": "Cite a pasted link",
+    "compare-source": "Find the cited work",
+    "critique": "Desktop critique",
+    "grade": "Desktop grade",
+    "structure": "Desktop structure",
+    "detect-claims": "Desktop claim detection",
+    "correction": "Desktop correction",
+    "evidence": "Desktop evidence",
+    "find-sources": "Desktop source search",
+    "verify-sources": "Desktop source receipts",
+    "tracer": "Desktop Tracer chat",
+    "watch/critique": "Screen Watch critique",
+    "watch/fix": "Screen Watch fix",
+    "demo/check": "Try-out check",
+    "demo/review": "Try-out review",
+    "demo/sources:search": "Try-out source search",
+    "demo/sources:correction": "Try-out source search for a fix",
+  };
+  const POOLS = { extension: "Free users", paid: "Student and Pro", beta: "Testers", app: "Desktop", demo: "Try-out page" };
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const label = (a) => LABELS[a] ?? a;
+  // Cents as the eye reads them: 0.412¢ for a lookup, $3.20 for a day.
+  const money = (c) => (c >= 100 ? `$${(c / 100).toFixed(2)}` : c >= 1 ? `${c.toFixed(2)}¢` : `${c.toFixed(3)}¢`);
+  const store = {
+    get() { try { return sessionStorage.getItem(KEY) || ""; } catch { return ""; } },
+    set(v) { try { sessionStorage.setItem(KEY, v); } catch { /* private window: this load only */ } },
+    clear() { try { sessionStorage.removeItem(KEY); } catch { /* nothing kept */ } },
+  };
+  let token = store.get();
+  let days = 7;
+
+  function showLogin(message) {
+    $("login").hidden = false;
+    $("report").hidden = true;
+    $("controls").hidden = true;
+    $("loginErr").textContent = message || "";
+    $("token").value = "";
+    $("token").focus();
+  }
+
+  async function load() {
+    if (!token) return showLogin("");
+    let res;
+    try {
+      res = await fetch(`/api/admin/costs?days=${days}&recent=60`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    } catch {
+      return showLogin("Couldn't reach the server. Try again.");
+    }
+    if (res.status === 401) { token = ""; store.clear(); return showLogin("That token isn't right."); }
+    if (res.status === 404) { return showLogin("The server has no admin token set yet. Add TRACELY_ADMIN_TOKEN in Railway, then redeploy."); }
+    if (!res.ok) return showLogin(`The server answered ${res.status}.`);
+    render(await res.json());
+  }
+
+  function render(r) {
+    $("login").hidden = true;
+    $("report").hidden = false;
+    $("controls").hidden = false;
+    $("ranges").innerHTML = RANGES.map(([d, t]) => `<button type="button" data-days="${d}" aria-pressed="${d === days}">${t}</button>`).join("");
+
+    const top = r.actions[0];
+    const pools = Object.entries(r.pools || {}).filter(([, p]) => p && p.enforced);
+    const today = pools.reduce((s, [, p]) => s + (p.spentUsd || 0), 0);
+    $("tiles").innerHTML = [
+      [`Spent, ${days === 1 ? "today" : `last ${days} days`}`, money(r.totalCents), `${r.count.toLocaleString()} actions`],
+      ["Average per action", r.count ? money(r.totalCents / r.count) : "—", "every action, failed ones included"],
+      ["Most of the cost", top ? esc(label(top.action)) : "—", top ? `${Math.round(top.share * 100)}% of it, ${money(top.avgCents)} each` : ""],
+      ["Spent today, all pools", `$${today.toFixed(2)}`, pools.map(([k, p]) => `${POOLS[k] ?? k} $${(p.spentUsd || 0).toFixed(2)} of $${(p.budgetUsd || 0).toFixed(0)}`).join(" · ")],
+    ].map(([k, v, n]) => `<div class="card tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+
+    $("actions").innerHTML = `<thead><tr><th>Action</th><th>Count</th><th>Total</th><th>Share</th><th>Average</th><th>Median</th><th>95th pct</th><th>Most</th><th>Searches each</th><th>Tokens in / out</th><th>Cached</th><th>Time</th><th>Failed</th></tr></thead><tbody>${
+      r.actions.length ? r.actions.map((a) => `<tr>
+        <td>${esc(label(a.action))}${LABELS[a.action] ? `<span class="key">${esc(a.action)}</span>` : ""}</td>
+        <td>${a.count.toLocaleString()}</td>
+        <td>${money(a.totalCents)}</td>
+        <td><span class="share" style="width:${Math.max(2, Math.round(a.share * 60))}px"></span>${Math.round(a.share * 100)}%</td>
+        <td><b>${money(a.avgCents)}</b></td>
+        <td>${money(a.medianCents)}</td>
+        <td>${money(a.p95Cents)}</td>
+        <td>${money(a.maxCents)}</td>
+        <td>${a.avgSearches}</td>
+        <td>${a.avgInputTokens.toLocaleString()} / ${a.avgOutputTokens.toLocaleString()}</td>
+        <td>${Math.round(a.cachedShare * 100)}%</td>
+        <td>${(a.avgMs / 1000).toFixed(1)} s</td>
+        <td class="${a.failed ? "bad" : ""}">${a.failed}</td></tr>`).join("") : `<tr><td colspan="13">Nothing has been charged in this range.</td></tr>`
+    }</tbody>`;
+
+    const W = Math.max(320, r.byDay.length * 36), H = 160, max = Math.max(...r.byDay.map((d) => d.totalCents), 0.0001);
+    $("days").innerHTML = r.byDay.length ? `<svg width="${W}" height="${H + 34}" role="img" aria-label="Spend by day">${r.byDay.map((d, i) => {
+      const h = Math.max(1, Math.round((d.totalCents / max) * H));
+      const why = Object.entries(d.actions).sort((x, y) => y[1] - x[1]).slice(0, 4).map(([k, v]) => `${label(k)} ${money(v)}`).join(", ");
+      return `<g><title>${esc(`${d.day}: ${money(d.totalCents)}, ${d.count} actions. ${why}`)}</title>
+        <rect x="${i * 36 + 6}" y="${H - h + 4}" width="24" height="${h}" rx="4" fill="var(--bar)"></rect>
+        <text x="${i * 36 + 18}" y="${H + 20}" text-anchor="middle">${esc(d.day.slice(5))}</text>
+        <text x="${i * 36 + 18}" y="${H + 32}" text-anchor="middle">${esc(money(d.totalCents))}</text></g>`;
+    }).join("")}</svg>` : `<p class="sub">Nothing yet.</p>`;
+
+    $("recent").innerHTML = `<thead><tr><th>When</th><th>Action</th><th>Cost</th><th>Searches</th><th>Tokens in / out</th><th>Model</th><th>Pool</th><th>Time</th><th></th></tr></thead><tbody>${
+      r.recent.length ? r.recent.map((x) => `<tr>
+        <td>${esc(new Date(x.at).toLocaleString())}</td>
+        <td>${esc(label(x.action))}</td>
+        <td><b>${money(x.cents)}</b></td>
+        <td>${x.searches}</td>
+        <td>${x.inputTokens.toLocaleString()} / ${x.outputTokens.toLocaleString()}</td>
+        <td>${esc(x.model)}</td>
+        <td>${esc(POOLS[x.pool] ?? x.pool)}</td>
+        <td>${(x.ms / 1000).toFixed(1)} s</td>
+        <td class="bad">${x.ok ? "" : "failed"}</td></tr>`).join("") : `<tr><td colspan="9">Nothing yet.</td></tr>`
+    }</tbody>`;
+
+    $("note").textContent = `Costs are the server's estimate: tokens at the prices in server/shared/prices.js, plus $0.01 for each web search. OpenAI's usage page is the bill. Records are kept ${r.keepDays} days, with no account and no text.`;
+  }
+
+  $("login").addEventListener("submit", (e) => {
+    e.preventDefault();
+    token = $("token").value.trim();
+    if (!token) return;
+    store.set(token);
+    load();
+  });
+  $("ranges").addEventListener("click", (e) => {
+    const d = Number(e.target?.dataset?.days);
+    if (d && d !== days) { days = d; load(); }
+  });
+  $("refresh").addEventListener("click", load);
+  $("signout").addEventListener("click", () => { token = ""; store.clear(); showLogin(""); });
+  load();
+})();
+</script>
+</body>
+</html>

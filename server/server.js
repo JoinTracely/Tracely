@@ -22,6 +22,8 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, verifyQuota, rec
          fairUseState, effectivePlan } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, reservedMicroCents, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { tallyCall, takeUsageLines, tallyCache } from "./lib/usageTally.js";
+import { noteActionCost, recordAction, costReport, KEEP_DAYS } from "./lib/costLedger.js";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { tallyStages, takeStageLines } from "./lib/stageTally.js";
 import { once as onceInFlight, workKey, takeJoinLines } from "./lib/inFlight.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
@@ -71,7 +73,30 @@ const STATIC_FILES = {
   "/try/": { file: "public/try.html", type: "text/html; charset=utf-8" },
   "/try.js": { file: "public/try.js", type: "text/javascript; charset=utf-8" },
   "/try.css": { file: "public/try.css", type: "text/css; charset=utf-8" },
+  // The operator's cost page (lib/costLedger.js). It holds nothing: it asks
+  // for TRACELY_ADMIN_TOKEN and reads /api/admin/costs with it.
+  "/admin/costs": { file: "public/admin-costs.html", type: "text/html; charset=utf-8" },
 };
+/* The cost page: never framed, never indexed, no referrer, and its script
+ * and styles inline with the one connection it needs, to this server. */
+const ADMIN_PAGES = new Set(["/admin/costs"]);
+const ADMIN_PAGE_HEADERS = {
+  "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  "X-Robots-Tag": "noindex, nofollow",
+  "Referrer-Policy": "no-referrer",
+};
+/* TRACELY_ADMIN_TOKEN guards /api/admin/costs. Unset, or shorter than 24
+ * characters, there is no such route (404). The owner sets it in Railway;
+ * no agent ever reads it. Compared as digests, in constant time. */
+function adminToken() {
+  const t = String(process.env.TRACELY_ADMIN_TOKEN ?? "").trim();
+  return t.length >= 24 ? t : "";
+}
+function adminAuthorized(req, want) {
+  const got = String(req.headers.authorization ?? "").match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? "";
+  const digest = (s) => createHash("sha256").update(s).digest();
+  return got.length > 0 && timingSafeEqual(digest(got), digest(want));
+}
 /* /try may be framed by the website and nothing else (frame-ancestors; no
  * X-Frame-Options, whose ALLOW-FROM is dead and whose DENY would override the
  * CSP in older browsers), and it is where a visitor's cookie is minted. */
@@ -978,6 +1003,8 @@ function chargeCall(gate, { model, usage, webSearchCalls = 0, pool }) {
   // The try-out's dollar window per address (demoGate), failed calls included.
   if (gate.demo?.addr) demoAddressSpend.add(gate.demo.addr, cost);
   tallyCall(gate.route, { usage, webSearchCalls, cost });
+  // What this action cost, written once it ends (lib/costLedger.js). A local, unmetered server prices it anyway.
+  noteActionCost(gate, { model, usage, webSearchCalls, cost: cost || costMicroCents(model, usage, { webSearchCalls }) });
   noteSearchCost(gate.searchTally, cost); // a source search's cost by pool and mode (lib/searchTally.js)
   noteDupeCost(gate.dupe, cost); // what a duplicate in flight cost (lib/dupeTally.js)
   return cost;
@@ -1405,8 +1432,25 @@ const server = http.createServer(async (req, res) => {
         json(res, 404, { error: { kind: "not_found", message: `${file} is missing on disk` } }, cors);
         return;
       }
-      res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store", ...(TRY_PAGES.has(url.pathname) ? tryPageHeaders(req) : {}) });
+      res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store", ...(TRY_PAGES.has(url.pathname) ? tryPageHeaders(req) : {}), ...(ADMIN_PAGES.has(url.pathname) ? ADMIN_PAGE_HEADERS : {}) });
       res.end(data);
+      return;
+    }
+
+    /* What each action cost (lib/costLedger.js), for the operator: totals,
+     * per action (count, total, average, median, p95), per day, and the
+     * latest actions. With today's spend and budget per pool. No caller, no
+     * text. No CORS: the page that reads it is served from here. */
+    if (req.method === "GET" && url.pathname === "/api/admin/costs") {
+      loadEnvFile();
+      const want = adminToken();
+      if (!want) { json(res, 404, { error: { kind: "not_found", message: "Not found" } }); return; }
+      if (!adminAuthorized(req, want)) { json(res, 401, { error: { kind: "unauthorized", message: "The admin token is missing or wrong." } }); return; }
+      const clamp = (v, lo, hi, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d);
+      const days = clamp(url.searchParams.get("days"), 1, KEEP_DAYS, 7);
+      const recent = clamp(url.searchParams.get("recent"), 1, 500, 50);
+      const pools = Object.fromEntries(["extension", "paid", "beta", "app", "demo"].map((pool) => [pool, spendSummary({ enforced: true, pool })]));
+      json(res, 200, { ...costReport({ days, recent }), pools, keepDays: KEEP_DAYS });
       return;
     }
 
@@ -2392,6 +2436,7 @@ const server = http.createServer(async (req, res) => {
 
     json(res, 404, { error: { kind: "not_found", message: "Not found" } }, cors);
   } catch (err) {
+    if (gate) gate.failed = true; // the cost ledger's `ok` (lib/costLedger.js)
     // Before the headersSent bail-out, so a failure is logged even when the
     // response can no longer carry it. One line, no user text (failureLog.js).
     noteUpstreamFailure(err);
@@ -2430,6 +2475,8 @@ const server = http.createServer(async (req, res) => {
     gate?.reservation?.release();
     gate?.thoroughHold?.release();
     noteDone(gate?.dupe); // no longer in flight (lib/dupeTally.js)
+    // One row for what this action cost, if it was charged (lib/costLedger.js). Never fails the request.
+    try { recordAction(gate, route, { ok: !gate?.failed, ms: performance.now() - arrived }); } catch (e) { console.error("[tracely] could not record an action's cost:", e?.message); }
   }
 });
 
