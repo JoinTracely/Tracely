@@ -127,6 +127,19 @@ CREATE TABLE IF NOT EXISTS billing_event_order (
 );
 `);
   },
+  // v5 — what each action cost (2026-10-24, lib/costLedger.js): one row per
+  // check, lookup, search or desktop call that was charged. No caller and no
+  // text; kept 90 days.
+  () => {
+    db.exec(`
+CREATE TABLE IF NOT EXISTS cost_actions (
+  at INTEGER NOT NULL, action TEXT NOT NULL, pool TEXT, model TEXT,
+  calls INTEGER, input INTEGER, cached INTEGER, cache_write INTEGER, output INTEGER,
+  searches INTEGER, cost_ucents INTEGER NOT NULL, ok INTEGER NOT NULL, ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS cost_actions_at ON cost_actions (at);
+`);
+  },
 ];
 
 export function migrate() {
