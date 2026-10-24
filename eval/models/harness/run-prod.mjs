@@ -22,16 +22,21 @@
 //   --dir PATH      results root (default eval/models/results/prod-<UTC date>; gitignored)
 //   --pace S        seconds between calls (default 4: the extension's 20/min caller limit)
 //   --cap USD       stop before a call once this run's spend would pass it (default 1)
+//   --essays a,b    only these essay ids (e3,L1): a change that can touch only
+//                   some sentences is measured on the essays that hold them
 //   --score         score what is in --dir and exit
 //
-// Two configs are written per set, both read by score.mjs:
+// Three configs are written per set, all read by score.mjs:
 //   prod-<commit>      the server's verdicts, as the 2026-10-01 rows measured them
 //   prod-<commit>+ext  what the extension on THIS checkout shows of them —
-//                      content.js flagShown (an essay, citation hints on) and
+//                      content.js classifyFinding (what each verdict is
+//                      about), flagShown (an essay, citation hints on) and
 //                      coveredByLaterCitation; a flag it hides leaves the
 //                      sentence unmarked, scored as the label's unmarked
 //                      verdict ("accurate" or "no_claim" — the writer sees
 //                      the same nothing).
+//   prod-<commit>+ext-raw  the same without classifyFinding: the two differ
+//                      only by it, on the same calls.
 // Resumable: an essay already recorded ok for a rep is skipped.
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -51,6 +56,7 @@ const BASE = arg('base', 'https://api.jointracely.com')
 const DIR = arg('dir', join(RESULTS, `prod-${new Date().toISOString().slice(0, 10)}`))
 const PACE_MS = Number(arg('pace', 4)) * 1000
 const CAP = Number(arg('cap', 1))
+const ESSAYS = arg('essays') ? new Set(arg('essays').split(',').map((s) => s.trim())) : null
 const dry = flag('dry')
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -66,23 +72,34 @@ function score() {
 if (flag('score')) { score(); process.exit(0) }
 
 /* ── what the extension shows ──────────────────────────────────────────────
- * flagShown and its rules, and coveredByLaterCitation, sliced out of
- * content.js by their anchors the way server/test/ext-* load it. FEATURES is
- * the one global flagShown reads from further down the file. */
-function loadShown() {
+ * flagShown and its rules, coveredByLaterCitation and classifyFinding, sliced
+ * out of content.js by their anchors the way server/test/ext-* load it (the
+ * recipe of ext-verdict-classes.test.js). FEATURES is the one global they
+ * read from further down the file: lookups and citation hints off, as the
+ * 2026-10-01 rows measured, so a "Needs evidence" is scored as the check said
+ * it. */
+function loadShown(verdictClasses) {
   const src = readFileSync(join(REPO, 'extension', 'content.js'), 'utf8')
-  const ANCHOR = '  // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.\n'
-  const a = src.indexOf(ANCHOR + '  const ISSUE_VERDICTS')
-  const b = src.indexOf(ANCHOR, a + ANCHOR.length)
-  const c = src.indexOf('  function coveredByLaterCitation(')
-  const d = src.indexOf('\n  }\n', c)
-  if (a < 0 || b < a || c < 0 || d < c) throw new Error('content.js: the flagShown or coveredByLaterCitation slice moved')
-  return vm.runInContext(`const FEATURES = { citeHintsToggle: false };
-    ${src.slice(a, b)}
-    ${src.slice(c, d + 4)}
-    ({ flagShown, coveredByLaterCitation })`, vm.createContext({}))
+  const between = (from, to) => {
+    const a = src.indexOf(from)
+    const b = src.indexOf(to, a)
+    if (a < 0 || b < a) throw new Error(`content.js: the slice ${from} .. ${to} moved`)
+    return src.slice(a, b)
+  }
+  return vm.runInContext(`const CHECK_INTERVAL_MS = 10000; const FEATURES = ${JSON.stringify({ citeHintsToggle: false, verdictClasses })};
+    ${between('  const ISSUE_VERDICTS =', '  /* Card titles')}
+    ${between('  /* Card titles', '  const MARK_PENDING')}
+    ${between('  const MARK_PATTERN =', '  const MARK_ICON_RANK')}
+    ${between('  /* ── Settings → the widget', '  /* ── "Explain in depth" (2.20.0)')}
+    ${between('  function hashText(s) {', '  // Bibliography block')}
+    ${between('  // Bibliography block', '  function wireChrome(')}
+    ({ flagShown, coveredByLaterCitation, classifyFinding })`, vm.createContext({
+    URL, Date, localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    setTimeout, clearTimeout, storageGet: () => {}, storageSet() {}, storageOnChanged() {}, extCall: () => null
+  }))
 }
-const SHOWN = loadShown()
+const SHOWN = loadShown(true)
+const SHOWN_RAW = loadShown(false)
 
 /** The document text, as harness/lib/tasks.mjs essayText builds it, and each
  * sentence's span in it for coveredByLaterCitation. */
@@ -116,6 +133,7 @@ for (const set of sets) {
   const checkset = JSON.parse(readFileSync(join(MODELS_DIR, `${set}.json`), 'utf8'))
   const reps = Number(arg('reps', SET_REPS[set]))
   for (const essay of checkset.essays) {
+    if (ESSAYS && !ESSAYS.has(essay.id)) continue
     const doc = essayDoc(essay)
     const byHash = new Map()
     for (const s of doc.segs) byHash.has(s.hash) ? byHash.get(s.hash).ids.push(s.id) : byHash.set(s.hash, { id: s.hash, text: s.text, ids: [s.id] })
@@ -213,26 +231,31 @@ for (const p of plan) {
   server.file.records.push(rec)
   save(server)
 
-  // The same answer, as the extension on this checkout would mark it.
-  const ext = fileFor(p.set, `${CONFIG}+ext`)
+  // The same answer, as the extension on this checkout would mark it, with and without classifyFinding.
   const covered = SHOWN.coveredByLaterCitation(p.doc.text, p.doc.segs)
   const textOf = new Map(p.doc.segs.map((s) => [s.id, s.text]))
   // A hidden flag leaves the sentence unmarked, and "accurate" and
   // "no_claim" are both unmarked to the writer: score it as whichever of the
   // two the label accepts.
   const unmarked = new Map(p.essay.sentences.map((s) => [s.id, (s.acceptable ?? []).includes('accurate') || !(s.acceptable ?? []).includes('no_claim') ? 'accurate' : 'no_claim']))
-  ext.file.records = ext.file.records.filter((r) => !(r.item === item && r.rep === p.rep))
-  ext.file.records.push({
-    ...rec, config: `${CONFIG}+ext`,
-    output: rec.output && {
-      ...rec.output,
-      findings: rec.output.findings.map((f) => {
-        if (f.missing || !['false', 'questionable', 'incoherent', 'needs_citation'].includes(f.verdict)) return f
-        return SHOWN.flagShown(f, {}, 'essay', textOf.get(f.id), covered.has(f.hash)) ? f : { ...f, verdict: unmarked.get(f.id), hiddenVerdict: f.verdict }
-      })
-    }
-  })
-  save(ext)
+  for (const [suffix, X] of [['+ext', SHOWN], ['+ext-raw', SHOWN_RAW]]) {
+    const ext = fileFor(p.set, `${CONFIG}${suffix}`)
+    ext.file.records = ext.file.records.filter((r) => !(r.item === item && r.rep === p.rep))
+    ext.file.records.push({
+      ...rec, config: `${CONFIG}${suffix}`,
+      output: rec.output && {
+        ...rec.output,
+        findings: rec.output.findings.map((raw) => {
+          if (raw.missing) return raw
+          const f = X.classifyFinding({ ...raw }, textOf.get(raw.id))
+          const g = f.verdict === raw.verdict ? f : { ...f, classifiedFrom: raw.verdict }
+          if (!['false', 'questionable', 'incoherent', 'needs_citation', 'wrong_source'].includes(g.verdict)) return g
+          return X.flagShown(g, {}, 'essay', textOf.get(g.id), covered.has(g.hash)) ? g : { ...g, verdict: unmarked.get(g.id), hiddenVerdict: g.verdict }
+        })
+      }
+    })
+    save(ext)
+  }
 
   const counts = rec.output ? rec.output.findings.reduce((a, f) => ((a[f.verdict ?? 'MISSING'] = (a[f.verdict ?? 'MISSING'] ?? 0) + 1), a), {}) : {}
   log(`${p.set}/${item} r${p.rep} ${rec.status}${rec.error ? ` ${rec.error.status} ${rec.error.kind}` : ''} ${rec.latencyMs}ms $${rec.costUSD.toFixed(5)} ${rec.model} ${JSON.stringify(counts)}`)

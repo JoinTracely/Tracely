@@ -275,6 +275,7 @@
     citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
     refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
     typePreview: true,    // Docs: every in-doc edit is typed as a private preview first, sent only on Accept (the "Type preview" block, previewDocEdit)
+    verdictClasses: true, // a "false" that is about the citation is "Wrong source cited", one about a conclusion that doesn't follow is "Doesn't make sense", and an organisation credited but another cited is "Wrong source cited" (classifyFinding; owner, 2026-10-24)
   };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
@@ -3013,9 +3014,9 @@
   const ORG_VERB = /\s+(?:has\s+|have\s+)?(?:recommends?|recommended|reports?|reported|publish(?:es|ed)|found|finds|concluded|concludes|estimates?|estimated|warns?|warned|announced|released|issued|identified|emphasi[sz]e[sd]|advises?|advised|states?|stated)\b/gu;
   // Capitalised words that open a clause rather than name anyone.
   const NAME_STOP = /^(?:The|A|An|In|On|At|By|For|From|Because|However|Although|Though|When|While|Since|After|Before|Also|Then|Thus|This|That|These|Those|Its|Their|Our|His|Her|According|Recently|Today|Now|Yet|But|And|So|Both|Each|Every|Many|Most|Some)$/;
-  function orgCredited(s) {
+  function orgCredited(s, verbs = ORG_VERB) {
     const isName = (w) => w != null && /^[\p{Lu}]/u.test(w) && !NAME_STOP.test(w);
-    for (const m of String(s ?? "").matchAll(ORG_VERB)) {
+    for (const m of String(s ?? "").matchAll(verbs)) {
       const words = s.slice(0, m.index).split(/[,;:()"“”]/).pop().trim().split(/\s+/);
       const run = []; // the name just before the verb: capitals, with "of", "for", "and" inside it
       for (let i = words.length - 1; i >= 0; i--) {
@@ -3962,6 +3963,148 @@
   // claim comes from (wrong_source, owner 2026-10-15).
   function replacedCitationOf(verdict, sentence) {
     return verdict === "wrong_source" ? lookupableCitation(sentence) : flaggedCitationOf(verdict, sentence);
+  }
+  /* ── what a verdict is about ────────────────────────────────────────────
+     Owner, 2026-10-24, a twenty-sentence test sheet: "Keep factual truth,
+     source alignment, and temporal scope distinct." The check has one word
+     for wrong, "false", and no word for a citation that names the wrong
+     source (wrong_source comes only from the separate citeFit call, which is
+     off). Its saved verdicts on the sheet:
+     - "The International Energy Agency reported … (UNESCO, 2023)": "false",
+       explained "The figures are attributed to the IEA, but the parenthetical
+       incorrectly cites UNESCO", its fix changing only the citation. The same
+       for WHO's estimate cited to NASA. Yet "NASA reports … (OECD, 2023)" and
+       "IUCN identifies … (OECD, 2023)" came back "accurate": one pattern, two
+       answers.
+     - "Because several studies have identified associations …, eliminating
+       social media access would completely prevent anxiety disorders":
+       "false", explained "Associations … do not establish that removing
+       social media would eliminate all anxiety disorders", which is the
+       check's own definition of "incoherent" (a conclusion that does not
+       follow from its premise). Two sentences like it came back incoherent.
+     So the verdict is read again against what the check itself said,
+     without another call (classifyFinding):
+     - a "false" whose fix changes nothing but the citation is about the
+       citation: "Wrong source cited", with that fix (citationOnlyFix);
+     - a "false" on a premise-and-conclusion sentence whose fix keeps the
+       premise word for word, whose explanation says the premise does not
+       establish the conclusion, is "Doesn't make sense" (inferenceOnlyFix).
+       Both are red: no flag is lost, only its title changes;
+     - an "accurate" sentence that credits one organisation in its words
+       and cites another in its parenthetical is "Wrong source cited"
+       (wrongCitation). Organisations only, never a person: "The WHO
+       reported … (Smith, 2020)" may cite an article that reports it.
+     A "false" whose fix changes the claim too stays "false": a sentence can
+     be wrong and wrongly cited. Nothing is re-asked; a saved verdict is read
+     again once (`cls`), so a Doc already checked changes on its next read.
+     FEATURES.verdictClasses switches it off. */
+  const CLASSIFY_GEN = 1;
+  const CLASSIFY_COPY = {
+    // True of a slip and of a body that republished another's work alike: the sentence and its citation should name one source.
+    wrongCitation: ({ credit, author }) => `The sentence credits ${namedBody(credit)}, but its citation names ${namedBody(author)}. Cite the work you took this from, and name that source in the sentence.`,
+  };
+  const namedBody = (name) => (/^[\p{Lu}&]{2,}$/u.test(name) ? name : `the ${name}`);
+  // Words only, for comparing a sentence with its fix: case, punctuation and spacing folded.
+  const plainWords = (s) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}%]+/gu, " ").trim();
+  // The sentence without its work citations, each parenthetical once.
+  function withoutCitations(text, cites) {
+    const spans = [...new Map(cites.map((c) => [c.start, c])).values()].sort((a, b) => b.start - a.start);
+    return plainWords(spans.reduce((t, c) => `${t.slice(0, c.start)} ${t.slice(c.end)}`, String(text)));
+  }
+  function citationOnlyFix(text, revision) {
+    const a = inTextCitationsOf(text), b = inTextCitationsOf(revision);
+    if (!a.length || !b.length || a.map((c) => c.inner).join("|") === b.map((c) => c.inner).join("|")) return false;
+    return withoutCitations(text, a) === withoutCitations(revision, b);
+  }
+  /* A premise and the conclusion drawn from it, by the words that join
+     them: "Because P, C", "P, proving that C", "P; therefore C", "P, these
+     findings show that C". */
+  const INFERENCE = [
+    /^(?:because|since|given that)\s+(?<p>[^,;]+),\s*(?<c>.+)$/iu,
+    /^(?<p>.+?),?\s+(?:thereby\s+)?(?:proving|which proves|demonstrating|which demonstrates|showing|which shows|meaning|which means|confirming|which confirms|establishing|which establishes)\s+(?:that\s+)?(?<c>.+)$/iu,
+    /^(?<p>.+?)[,;]\s*(?:therefore|thus|hence|consequently|so)\s*,?\s+(?<c>.+)$/iu,
+    /^(?<p>.+?),\s*(?:these|this|the|such)\s+(?:findings?|results?|data|evidence|studies|research)\s+(?:demonstrates?|shows?|proves?|suggests?|indicates?|confirms?)\s+(?:that\s+)?(?<c>.+)$/iu,
+  ];
+  // The check's explanation says the premise does not get it there.
+  const NOT_ESTABLISHED = /\b(?:do|does|did|can|could|would)(?:\s+not|n['’]t)\s+(?:\w+\s+){0,2}?(?:establish|prove|show|demonstrate|follow|support|guarantee|imply|mean|justify|warrant)\b|\bnot (?:proof|evidence) (?:of|that)\b/i;
+  function inferenceOnlyFix(text, f) {
+    const fix = plainWords(f?.revision);
+    if (!fix || !NOT_ESTABLISHED.test(String(f?.explanation ?? ""))) return false;
+    for (const re of INFERENCE) {
+      const m = String(text ?? "").match(re);
+      if (!m) continue;
+      const p = plainWords(m.groups.p), c = plainWords(m.groups.c);
+      if (p.split(" ").length >= 4 && c.split(" ").length >= 3 && fix.includes(p) && !fix.includes(c)) return true;
+    }
+    return false;
+  }
+  // "According to the Centers for Disease Control and Prevention, …": the organisation it names.
+  function orgSaidBy(s) {
+    const m = String(s ?? "").match(/\b[Aa]ccording to (?:the\s+)?([^,;:()"“”]+)/u);
+    if (!m) return "";
+    const words = m[1].trim().split(/\s+/);
+    const run = [];
+    for (let i = 0; i < words.length; i++) {
+      if (/^[\p{Lu}]/u.test(words[i]) || (run.length && GROUP_SMALL.test(words[i]) && /^[\p{Lu}]/u.test(words[i + 1] ?? ""))) run.push(words[i]);
+      else break;
+    }
+    return orgLike(run.join(" ")) ? run.join(" ") : "";
+  }
+  // The verbs a sentence credits an organisation with: orgCredited's, and the ones a reader takes the same way.
+  const CREDIT_VERB = /\s+(?:has\s+|have\s+)?(?:recommends?|recommended|reports?|reported|publish(?:es|ed)|found|finds|concluded|concludes|estimates?|estimated|warns?|warned|announced|released|issued|identif(?:y|ies|ied)|emphasi[sz]e[sd]|advises?|advised|states?|stated|notes?|noted|says|said|shows?|showed|lists?|listed|describes?|described|defines?|defined)\b/gu;
+  const bareWord = (w) => w.replace(/['’]s$/u, "").replace(/[.,'’]+$/u, "");
+  const orgLike = (name) => String(name ?? "").split(/\s+/).some((w) => /^[\p{Lu}&]{2,}$/u.test(bareWord(w)) || ORG_WORD.test(bareWord(w)));
+  /* Its initials, an acronym word kept whole ("UN Environment Programme" is
+     UNEP): without the small words (OECD) and with them (DOE, the Department
+     of Energy). */
+  const initialsOf = (name) => {
+    const words = String(name).split(/\s+/).map(bareWord).filter((w) => w && !/^(?:the|&)$/i.test(w));
+    const letters = (ws) => ws.map((w) => (/^[\p{Lu}&]{2,}$/u.test(w) ? w : w[0])).join("").toUpperCase();
+    return [letters(words.filter((w) => !GROUP_SMALL.test(w))), letters(words)];
+  };
+  /* Whether two names can be one body: one inside the other, or initials
+     that agree, the shorter found in order in the longer from the same first
+     letter: "CDC" and the Centers for Disease Control and Prevention, UNICEF
+     and the United Nations Children's Fund (its old name's initials). When in
+     doubt, one body: a wrong "same" costs a note, a wrong "different" a flag. */
+  const inOrder = (short, long) => short[0] === long[0] && [...short].every(((i) => (ch) => (i = long.indexOf(ch, i) + 1) > 0)(0));
+  function sameBody(a, b) {
+    const x = plainWords(a).replace(/^the /, ""), y = plainWords(b).replace(/^the /, "");
+    if (!x || !y || x.includes(y) || y.includes(x)) return true;
+    return initialsOf(a).some((p) => initialsOf(b).some((q) => p.length >= 2 && q.length >= 2 && (p.length <= q.length ? inOrder(p, q) : inOrder(q, p))));
+  }
+  function wrongCitation(text) {
+    const cite = lookupableCitation(text);
+    if (!cite) return null;
+    const author = cite.inner.replace(/[,\s]+(?:\d.*|n\.\s?d\..*)$/u, "").trim();
+    const credit = orgCredited(text, CREDIT_VERB) || orgSaidBy(text);
+    if (!credit || !author || !orgLike(author) || !orgLike(credit) || sameBody(credit, author)) return null;
+    return { credit, author };
+  }
+  function classifyFinding(f, text) {
+    if (!f || typeof f !== "object" || f.cls === CLASSIFY_GEN || typeof text !== "string") return f;
+    if (typeof FEATURES === "object" && FEATURES.verdictClasses === false) return f;
+    const from = f.from ?? f.verdict;
+    let next = f;
+    if (f.verdict === "false" && citationOnlyFix(text, f.revision)) next = { ...f, verdict: "wrong_source", from };
+    else if (f.verdict === "false" && inferenceOnlyFix(text, f)) next = { ...f, verdict: "incoherent", from };
+    else if (f.verdict === "accurate") {
+      const wrong = wrongCitation(text);
+      if (wrong) next = { ...f, verdict: "wrong_source", from, explanation: CLASSIFY_COPY.wrongCitation(wrong), revision: "", confidence: f.confidence ?? "medium" };
+    }
+    return { ...next, cls: CLASSIFY_GEN };
+  }
+  // Each mode's verdicts, read again where they have not been: returns how many changed verdict.
+  function classifyInto(segments, cache) {
+    let n = 0;
+    for (const seg of Array.isArray(segments) ? segments : []) {
+      const f = cache.get(seg?.hash);
+      if (!f || f.cls === CLASSIFY_GEN) continue;
+      const next = classifyFinding(f, seg.text);
+      if (next.verdict !== f.verdict) n++;
+      cache.set(seg.hash, next);
+    }
+    return n;
   }
   /* The two modes' cards ask the same of a sentence's citation, so the
      answer is written once; each mode passes its own sentences, verdicts and
@@ -6287,7 +6430,8 @@
         verdictsReused += n;
         console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
       }
-      return n;
+      // Verdicts saved before classifyFinding, read again once: no call is made.
+      return n + classifyInto(segments, cache);
     }
 
     function uncheckedSegments() {
@@ -6395,6 +6539,7 @@
           for (const f of data.findings ?? []) {
             cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: usableRevision(todo.find((x) => x.hash === f.id)?.text, f.revision), confidence: f.confidence });
           }
+          classifyInto(todo, cache); // what each verdict is about: the citation, the reasoning, the fact (classifyFinding)
           holdOmitted(heldHashes, todo, data.findings, Date.now());
           persistCaches();
           autoFindSources(data.findings ?? []); // fire-and-forget, capped
@@ -13626,7 +13771,8 @@
         verdictsReused += n;
         console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
       }
-      return n;
+      // Verdicts saved before classifyFinding, read again once: no call is made.
+      return n + classifyInto(segments, cache);
     }
 
     function uncheckedSegments() {
@@ -13704,6 +13850,7 @@
           for (const f of data.findings ?? []) {
             cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: usableRevision(todo.find((x) => x.hash === f.id)?.text, f.revision), confidence: f.confidence });
           }
+          classifyInto(todo, cache); // what each verdict is about: the citation, the reasoning, the fact (classifyFinding)
           holdOmitted(heldHashes, todo, data.findings, Date.now());
           persistFieldCache();
           autoFindSources(data.findings ?? []); // fire-and-forget, capped
