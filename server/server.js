@@ -23,6 +23,7 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, verifyQuota, rec
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, reservedMicroCents, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { tallyCall, takeUsageLines, tallyCache } from "./lib/usageTally.js";
 import { noteActionCost, recordAction, costReport, KEEP_DAYS } from "./lib/costLedger.js";
+import { searchProvider } from "./lib/searchApi.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { tallyStages, takeStageLines } from "./lib/stageTally.js";
 import { once as onceInFlight, workKey, takeJoinLines } from "./lib/inFlight.js";
@@ -788,10 +789,18 @@ const WORST_CALL = {
   "/api/find-sources": { input: 48_000, output: 16_000, webSearchCalls: 4 },
   "/api/verify-sources": { input: 24_000, output: 3_500, webSearchCalls: 0 },
 };
+/* With a cheaper search set up (lib/searchApi.js), a source search may read
+ * and judge its results before OpenAI's search runs: one more pass of the
+ * verifier (its 2,000 output tokens, no detail check) and the provider's fee,
+ * held at one web_search fee because every provider costs less. Without one,
+ * the reservation is what it always was. */
+const CHEAP_PASS = { input: 24_000, output: 2_000, webSearchCalls: 1 };
 function worstCallMicroCents(route, model) {
   const w = WORST_CALL[route];
   if (!w) return 0;
-  return costMicroCents(model, { input: w.input, cacheWrite: w.input, output: w.output }, { webSearchCalls: w.webSearchCalls });
+  const base = costMicroCents(model, { input: w.input, cacheWrite: w.input, output: w.output }, { webSearchCalls: w.webSearchCalls });
+  if ((route !== "/api/sources" && route !== "/api/sources/stream") || !searchProvider()) return base;
+  return base + costMicroCents(model, { input: CHEAP_PASS.input, cacheWrite: CHEAP_PASS.input, output: CHEAP_PASS.output }, { webSearchCalls: CHEAP_PASS.webSearchCalls });
 }
 /* The web_search fee to record for a source search: every web_search_call
  * the answer carried (lib/providers/openai.js webSearchCallsOf), and never
@@ -991,8 +1000,9 @@ function admitThorough(gate, route, requested, promptBytes = 0) {
  * that paid, the caller's fair-use total, and — on the thorough model — its
  * Thorough allowance. The failed-but-billed path in the central handler uses
  * it too, so a call that truncated still counts against both. */
-function chargeCall(gate, { model, usage, webSearchCalls = 0, pool }) {
-  const cost = recordSpend({ model, usage, webSearchCalls, enforced: gate.ent.enforced, pool });
+function chargeCall(gate, { model, usage, webSearchCalls = 0, extraMicroCents = 0, pool }) {
+  // `extraMicroCents`: what a call cost that no token price says, the cheaper search's fee (lib/searchApi.js).
+  const cost = recordSpend({ model, usage, webSearchCalls, extraMicroCents, enforced: gate.ent.enforced, pool });
   recordAccountSpend(gate.callerId, cost);
   // A request holding a thorough admission makes exactly one call, on the
   // thorough model. The id is checked too, with a dated snapshot suffix
@@ -1004,7 +1014,7 @@ function chargeCall(gate, { model, usage, webSearchCalls = 0, pool }) {
   if (gate.demo?.addr) demoAddressSpend.add(gate.demo.addr, cost);
   tallyCall(gate.route, { usage, webSearchCalls, cost });
   // What this action cost, written once it ends (lib/costLedger.js). A local, unmetered server prices it anyway.
-  noteActionCost(gate, { model, usage, webSearchCalls, cost: cost || costMicroCents(model, usage, { webSearchCalls }) });
+  noteActionCost(gate, { model, usage, webSearchCalls, cost: cost || costMicroCents(model, usage, { webSearchCalls }) + Math.max(0, Number(extraMicroCents) || 0) });
   noteSearchCost(gate.searchTally, cost); // a source search's cost by pool and mode (lib/searchTally.js)
   noteDupeCost(gate.dupe, cost); // what a duplicate in flight cost (lib/dupeTally.js)
   return cost;
@@ -1803,7 +1813,8 @@ const server = http.createServer(async (req, res) => {
       // line only — /api/sources is frozen. Each SOURCE carries its own
       // receipt (verified, readFrom, quote: additive optional fields,
       // lib/sourceVerify.js), and those do reach the client.
-      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, pages, ...result } = answer;
+      // `via`, `provider`, `providerSearches`, `providerMicroCents`: which search answered (factcheck.js cheapFirst) and what the cheaper one charged. Log and ledger only.
+      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, pages, via, provider: searchApi, providerSearches, providerMicroCents, ...result } = answer;
       // For the log line only: what the tool billed and what the server filled
       // in afterwards — the two numbers that say what a search costs and
       // whether the citation fields are coming from pages or from us.
@@ -1819,14 +1830,16 @@ const server = http.createServer(async (req, res) => {
       const r = Object.entries(reads ?? {}).map(([k, v]) => `${k}:${v}`).join(",") || "none";
       // Pages fetched, and read: completing and the receipts share one fetch (Codex review S2).
       const p = `fetched:${pages?.fetched ?? 0},reads:${pages?.reads ?? 0}`;
-      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} verify=${verify ? 1 : 0}${gate.searchTally.tags ? ` tags=${Object.values(gate.searchTally.tags).join(",")}` : ""} ms=${Date.now() - started} stages=${t} reads=${r} pages=${p}`);
+      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} verify=${verify ? 1 : 0}${gate.searchTally.tags ? ` tags=${Object.values(gate.searchTally.tags).join(",")}` : ""} via=${via ?? "openai"}${searchApi ? ` api=${searchApi}:${providerSearches ?? 0}` : ""} ms=${Date.now() - started} stages=${t} reads=${r} pages=${p}`);
       const backed = result.sources.some((s) => s?.stance === "supports" && s?.verified === true);
       tallyStages(url.pathname, gate.pool, timing, { reads, backed });
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can
       // search more than once per answer, so the calls are counted.
-      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: searchFee(webSearchCalls), pool: gate.pool });
+      // A cheaper search that answered ran no OpenAI search: none of its fee, the provider's instead (lib/searchApi.js).
+      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: via === "cheap" ? 0 : searchFee(webSearchCalls), extraMicroCents: providerMicroCents ?? 0, pool: gate.pool });
+      gate.costVia = via ?? "openai"; // the cost page's "which search answered" (lib/costLedger.js)
       const outcome = searchOutcome(result.sources);
       endSearch(gate.searchTally, outcome);
       noteBucketOutcome(bucket, outcome === "backed");
@@ -2453,7 +2466,7 @@ const server = http.createServer(async (req, res) => {
     if (gate?.pool && (EXTENSION_MODEL_ROUTES.has(modelRoute) || APP_AI_ROUTES.has(route)) && err?.llm?.usage) {
       try {
         const searched = SOURCE_ROUTES.has(modelRoute) || route === "/api/find-sources";
-        chargeCall(gate, { model: err.llm.model, usage: err.llm.usage, webSearchCalls: searched ? searchFee(err.llm.webSearchCalls) : 0, pool: gate.pool });
+        chargeCall(gate, { model: err.llm.model, usage: err.llm.usage, webSearchCalls: searched ? searchFee(err.llm.webSearchCalls) : 0, extraMicroCents: err.llm.extraMicroCents ?? 0, pool: gate.pool });
       } catch (e) {
         console.error("[tracely] could not record a failed call's spend:", e?.message);
       }

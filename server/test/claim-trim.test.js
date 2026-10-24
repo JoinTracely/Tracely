@@ -136,5 +136,7 @@ test("the desktop's route: partial only when asked, and the receipt carries the 
 
 test("the search turns it on for the extension, never for a correction", () => {
   const FACTCHECK = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib", "factcheck.js"), "utf8");
-  assert.match(FACTCHECK, /partial: true, context: context \? claimWindow\(context, claim\) : ""/);
+  // OpenAI's search asks for it (openaiSources); the cheaper search's pass waits for that one (cheapFirst's judge, partial: false).
+  assert.match(FACTCHECK, /judgeSources\(merged, \{ claim, correction, context, model: chosenModel, partial: true, tell, enrich \}\)/);
+  assert.match(FACTCHECK, /partial, context: context \? claimWindow\(context, claim\) : ""/);
 });

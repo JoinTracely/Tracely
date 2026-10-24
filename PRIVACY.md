@@ -5,7 +5,10 @@ text it checks (up to 30 days, in its abuse-monitoring logs, never for
 training), names who hosts our server (Railway, since 23 October 2026) and
 our website (Vercel), covers the website itself, sets the minimum age at 13,
 says how Tracely answers a browser's Do Not Track signal, adds a security
-section, and takes privacy requests by email rather than in public. Earlier
+section, and takes privacy requests by email rather than in public. Later the
+same day it added Brave Search, which may be asked first when Tracely looks
+for sources: it receives the sentence being looked up, never the document
+(see "Finding sources" and "Who else processes your data"). Earlier
 the same day, it said that a lookup carries a few labels about itself, never
 text, and that Help's diagnostics hold a few counts (see "Finding sources"
 and "On your device"). The 23 October 2026
@@ -69,7 +72,11 @@ abuse-monitoring logs, as its API terms allow.
 **Finding sources.** When you ask for sources (or turn on automatic sources in
 the widget), the flagged sentence, its suggested correction and up to 6,000
 characters of surrounding text are sent to our server and to OpenAI, whose
-web-search tool may run searches derived from that sentence. Tracely also
+web-search tool may run searches derived from that sentence. When our server
+has it turned on, it first searches **Brave Search** for the sentence: Brave
+receives that one sentence, with its citation taken out, as a search query,
+and never the document, the text around it or anything about you. OpenAI's
+search runs only when nothing Brave finds backs the sentence. Tracely also
 looks up a claim the check would mark as needing evidence or a citation
 before it flags it (up to 5 a check), sending the same, without the
 suggested correction. With each such lookup it also sends a few labels,
@@ -196,6 +203,11 @@ removes the rest.
   our server sends that citation's words (author, title words, year), or the
   matching entry from your reference list, to Crossref and Open Library
   (openlibrary.org) to look the work up.
+- **Brave Search** (api.search.brave.com), when our server has it turned on,
+  for finding sources: it receives the sentence being looked up, with its
+  citation taken out, as a search query, and never the document, the text
+  around it or anything about you. We keep none of what it returns except the
+  links our server then reads.
 - **Supabase** — sign-in and account records (email, account id, plan).
 - **Stripe** — payments; we receive plan, customer id and payer email, never
   card details.

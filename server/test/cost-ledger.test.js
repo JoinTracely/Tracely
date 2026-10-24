@@ -62,7 +62,7 @@ test("an action's calls add up, and one row is written when it ends", () => {
 
 test("a row holds no caller and no text: only these columns", () => {
   const cols = db.prepare("PRAGMA table_info(cost_actions)").all().map((c) => c.name);
-  assert.deepEqual(cols, ["at", "action", "pool", "model", "calls", "input", "cached", "cache_write", "output", "searches", "cost_ucents", "ok", "ms"]);
+  assert.deepEqual(cols, ["at", "action", "pool", "model", "calls", "input", "cached", "cache_write", "output", "searches", "cost_ucents", "ok", "ms", "via"]);
 });
 
 test("the report: per action count, total, share, average, median, p95 and most; per day; the latest first", () => {
@@ -103,7 +103,7 @@ test("the report: per action count, total, share, average, median, p95 and most;
   assert.equal(r.recent.length, 3);
   assert.equal(r.recent[0].action, "sources:search", "newest first");
   assert.equal(r.recent[0].ok, false);
-  for (const x of r.recent) assert.deepEqual(Object.keys(x).sort(), ["action", "at", "cachedTokens", "calls", "cents", "inputTokens", "model", "ms", "ok", "outputTokens", "pool", "searches"]);
+  for (const x of r.recent) assert.deepEqual(Object.keys(x).sort(), ["action", "at", "cachedTokens", "calls", "cents", "inputTokens", "model", "ms", "ok", "outputTokens", "pool", "searches", "via"]);
 });
 
 test(`rows older than ${KEEP_DAYS} days are deleted as new ones arrive`, () => {

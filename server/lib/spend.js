@@ -229,9 +229,10 @@ export function poolRoom({ enforced = true, at = Date.now(), env = process.env, 
  * amount to the account's fair-use total and its Thorough allowance without
  * pricing the call twice (server.js recordCall).
  */
-export function recordSpend({ model, usage, webSearchCalls = 0, enforced = true, at = Date.now(), pool = "extension" }) {
+export function recordSpend({ model, usage, webSearchCalls = 0, extraMicroCents = 0, enforced = true, at = Date.now(), pool = "extension" }) {
   if (!enforced) return 0;
-  const cost = costMicroCents(model, usage, { webSearchCalls });
+  // `extraMicroCents`: a fee no token price covers, the cheaper web search's (lib/searchApi.js).
+  const cost = costMicroCents(model, usage, { webSearchCalls }) + Math.max(0, Math.round(Number(extraMicroCents) || 0));
   if (cost > 0) usageAdd(poolOf(pool).account, usageDay(at), KIND, cost);
   return cost;
 }

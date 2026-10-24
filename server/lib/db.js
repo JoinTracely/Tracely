@@ -140,6 +140,12 @@ CREATE TABLE IF NOT EXISTS cost_actions (
 CREATE INDEX IF NOT EXISTS cost_actions_at ON cost_actions (at);
 `);
   },
+  // v6 — which search answered a source search (2026-10-24, lib/searchApi.js):
+  // "cheap" (the cheaper provider), "fallback" (it, then OpenAI's) or
+  // "openai" (OpenAI's alone). Null for every other action.
+  () => {
+    db.exec("ALTER TABLE cost_actions ADD COLUMN via TEXT;");
+  },
 ];
 
 export function migrate() {

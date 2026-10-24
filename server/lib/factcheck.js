@@ -13,6 +13,7 @@ import {
 import { citeFields, SOURCE_KINDS } from "./citeFields.js";
 import { isNarrowing } from "../shared/narrowing.js";
 import { trimSentence } from "./claimTrim.js";
+import { searchProvider, searchQueryFor, candidateResults } from "./searchApi.js";
 
 // Re-exported so every existing importer (server.js, tests) is unaffected by
 // CheckError having moved into its own module to break an import cycle.
@@ -421,9 +422,30 @@ Citation fields. A student's reference list is built from these, so copy ONLY wh
  * from } as each source's reading settles; { type: "judging", count } before
  * the verdicts. A model's stance is never in it: nothing is "supports" until
  * the receipts say so. Watching only — a throwing callback changes nothing. */
-export async function findSources({ claim, correction, context, model, effort, mock = false, enrich = true, onProgress = null }) {
+export async function findSources(opts) {
+  const { claim, correction, model, mock = false, enrich = true } = opts;
   const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
   if (mock) return mockSources(claim, chosenModel);
+  /* A cheaper search first, when this server has one (lib/searchApi.js), and
+   * OpenAI's own as its fallback (cheapFirst). A correction search asks about
+   * the proposed fix, which a plain query can't put, so it is OpenAI's alone,
+   * as before; so is a caller that turns the reading off. */
+  const provider = correction || enrich === false ? null : opts.provider === undefined ? searchProvider() : opts.provider;
+  if (!provider) return openaiSources(opts);
+  const tell = progressOf(opts.onProgress);
+  return cheapFirst({
+    claim, model: chosenModel, provider, tell,
+    // Nothing backing it here means OpenAI's search next, so the detail check waits for that one.
+    judge: (merged) => judgeSources(merged, { claim, context: opts.context, model: chosenModel, partial: false, tell }),
+    full: () => openaiSources(opts),
+  });
+}
+
+/* OpenAI's web search, then the receipts: every source search before
+ * 2026-10-24, and still every one on a server with no cheaper search, every
+ * correction search, and every cheaper search that found nothing backing. */
+async function openaiSources({ claim, correction, context, model, effort, enrich = true, onProgress = null }) {
+  const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
 
   const userMsg =
     `CLAIM:\n${claim}\n` +
@@ -486,7 +508,7 @@ export async function findSources({ claim, correction, context, model, effort, m
   }));
 
   const merged = mergeSources([...sources, ...harvested]);
-  const tell = (ev) => { if (typeof onProgress === "function") { try { onProgress(ev); } catch { /* watching only */ } } };
+  const tell = progressOf(onProgress);
   if (merged.length) tell({ type: "found", sources: merged.map((s) => ({ title: String(s.title ?? ""), url: String(s.url ?? ""), publisher: String(s.publisher ?? "") })) });
 
   if (merged.length === 0) {
@@ -497,6 +519,21 @@ export async function findSources({ claim, correction, context, model, effort, m
     throw err;
   }
 
+  // Nothing backs the whole sentence? Look for one that backs all but a small detail (sourceVerify.js coverDetail).
+  const judged = await judgeSources(merged, { claim, correction, context, model: chosenModel, partial: true, tell, enrich });
+
+  // `webSearchCalls`: what the search tool billed, per call — the route
+  // records it and keeps it out of the response. `enriched`/`dropped`/
+  // `verified`/`retracted`/`stages`/`reads` are for the route's log lines.
+  return { sources: judged.sources, model: usedModel, usage: judged.usage ? addUsage(usage, judged.usage) : usage, webSearchCalls, webSearchActions,
+    enriched: judged.enriched, dropped: judged.dropped, retracted: judged.retracted, verified: judged.verified,
+    stages: { search, ...judged.stages }, reads: judged.reads, pages: judged.pages };
+}
+
+/* Complete each source's citation fields, then read and judge it against the
+ * claim: what happens after a search, whichever search found the links. */
+async function judgeSources(merged, { claim, correction = null, context = null, model, partial = true, tell = () => {}, enrich = true }) {
+  const since = (t) => Math.round(performance.now() - t);
   // One fetch per page for the whole search (Codex review S2, citeMeta.js
   // sharedPages): completing a source's citation fields and reading it for
   // its receipt share the page. A source with no DOI and no PubMed id has
@@ -521,25 +558,85 @@ export async function findSources({ claim, correction, context, model, effort, m
     // `verified: true`); one on the topic is "context"; one that could not be
     // read is "context" with `verified: false` — never backing. Never fails the
     // search; its tokens are added to what the route records.
-    const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, partial: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel,
+    const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, partial: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model,
       onProgress: (ev) => tell(ev.type === "read" ? { type: "read", url: String(merged[ev.i]?.url ?? ""), read: ev.read, from: ev.from } : ev),
-      // Nothing backs the whole sentence? Look for one that backs all but a small detail (sourceVerify.js coverDetail).
-      partial: true, context: context ? claimWindow(context, claim) : "", pages });
+      partial, context: context ? claimWindow(context, claim) : "", pages });
     // OpenAlex's is_retracted, read on the same call as the abstract.
     const gone = new Set(verified.retracted ?? []);
     for (let i = merged.length - 1; i >= 0; i--) if (gone.has(merged[i])) merged.splice(i, 1);
     const retracted = (retractedByRecord ?? 0) + gone.size;
-
-    // `webSearchCalls`: what the search tool billed, per call — the route
-    // records it and keeps it out of the response. `enriched`/`dropped`/
-    // `verified`/`retracted`/`stages`/`reads` are for the route's log lines.
-    return { sources: merged, model: usedModel, usage: verified.usage ? addUsage(usage, verified.usage) : usage, webSearchCalls, webSearchActions, enriched, dropped, retracted,
+    return { sources: merged, usage: verified.usage ?? null, enriched, dropped, retracted,
       verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, figures: verified.figures ?? 0, partial: verified.partial ?? 0, unread: verified.unread ?? 0 },
-      stages: { search, complete, read: verified.stages?.read ?? 0, judge: verified.stages?.judge ?? 0, trim: verified.stages?.trim ?? 0 }, reads: verified.reads ?? {},
+      stages: { complete, read: verified.stages?.read ?? 0, judge: verified.stages?.judge ?? 0, trim: verified.stages?.trim ?? 0 }, reads: verified.reads ?? {},
       pages: { fetched: pages?.counts.fetched ?? 0, reads: pages?.counts.reads ?? 0 } };
   } finally {
     pages?.close();
   }
+}
+
+// A watcher that can never break the search it watches.
+function progressOf(onProgress) {
+  return (ev) => { if (typeof onProgress === "function") { try { onProgress(ev); } catch { /* watching only */ } } };
+}
+
+const backs = (s) => s?.stance === "supports" && s?.verified === true;
+const urlKey = (u) => String(u ?? "").trim().replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "");
+
+/* The cheaper search first (2026-10-24, lib/searchApi.js), OpenAI's as its
+ * fallback. Owner: "implement the system with openai's search as a
+ * fallback".
+ *   1. The provider's results are read and judged by the same receipts
+ *      (`judge`) any search's are, without the detail check.
+ *   2. One of them backs the sentence: that is the answer. No OpenAI search
+ *      runs, and no web_search fee is charged (`via: "cheap"`).
+ *   3. Nothing backs it, the provider failed, or it found nothing: OpenAI's
+ *      search runs exactly as before (`full`, `via: "fallback"`). A page the
+ *      cheap search found that SAYS OTHERWISE is kept beside its answer,
+ *      read and quoted, so a backing source from either side still wins
+ *      (the extension's lookupOutcome) and a refutation is never thrown
+ *      away. No lookup ends with fewer backing sources than it had before.
+ * The provider's fee rides on the answer (`providerMicroCents`, charged by the
+ * route with the tokens); a provider that failed charged nothing. When the
+ * fallback fails, the cheap pass's tokens and fee ride on its error. */
+export async function cheapFirst({ claim, model, provider, judge, full, tell = () => {} }) {
+  const started = performance.now();
+  let results = null; // null: the provider failed, and charged nothing
+  try {
+    results = candidateResults(await provider.search(searchQueryFor(claim)));
+  } catch {
+    results = null;
+  }
+  const charged = results === null ? 0 : provider.microCentsPerQuery;
+  const fee = { provider: provider.name, providerSearches: results === null ? 0 : 1, providerMicroCents: charged };
+  let judged = null;
+  if (results?.length) {
+    // No snippet of the provider's is kept (Brave's terms allow only transient storage): a source's words are the page's own, from the receipts.
+    const merged = mergeSources(results.map((r) => ({ title: r.title, url: r.url, publisher: hostOf(r.url), snippet: "", stance: "context" })));
+    tell({ type: "found", sources: merged.map((s) => ({ title: String(s.title ?? ""), url: String(s.url ?? ""), publisher: String(s.publisher ?? "") })) });
+    judged = await judge(merged);
+    if (judged.sources.some(backs)) {
+      return { ...judged, model, webSearchCalls: 0, webSearchActions: {}, via: "cheap", ...fee,
+        stages: { cheap: Math.round(performance.now() - started), ...judged.stages } };
+    }
+  }
+  const cheapMs = Math.round(performance.now() - started);
+  let rest;
+  try {
+    rest = await full();
+  } catch (err) {
+    // Billed anyway: what the cheap pass spent goes on whatever the failure carries (server.js's central catch charges err.llm).
+    if (judged?.usage || charged) {
+      const prior = err?.llm;
+      try {
+        Object.defineProperty(err, "llm", { value: { model, ...(prior ?? {}), usage: addUsage(prior?.usage, judged?.usage), extraMicroCents: charged }, enumerable: false, configurable: true });
+      } catch { /* a failure that can't carry it: the route records what it can */ }
+    }
+    throw err;
+  }
+  const have = new Set(rest.sources.map((s) => urlKey(s.url)));
+  const saysOtherwise = (judged?.sources ?? []).filter((s) => s.stance === "refutes" && s.verified === true && !have.has(urlKey(s.url))).slice(0, 2);
+  return { ...rest, sources: [...rest.sources, ...saysOtherwise], usage: judged?.usage ? addUsage(rest.usage, judged.usage) : rest.usage, via: "fallback", ...fee,
+    stages: { cheap: cheapMs, ...rest.stages } };
 }
 
 /* The part of the document the search should see: the claim's own
