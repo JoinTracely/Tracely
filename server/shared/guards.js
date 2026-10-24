@@ -208,6 +208,17 @@ export const SPEND = {
   // run searches until the app pool's day was spent. Wide enough for every
   // desktop user at their own 25-an-hour window several times over.
   appWebSearchesPerHour: 60,
+  /* The extension's own lookups (/api/sources with verify: true, owner
+   * 2026-10-23: a claim is looked up before it is flagged, up to 5 per
+   * check). They have windows of their own, so they never take the hour a
+   * writer's "Find a source" needs: GUARDS.maxWebSearchesPerHour is 15 for
+   * every free user together, and lookups alone would fill it in minutes.
+   * The dollar bound is unchanged: every lookup reserves against its pool's
+   * day (spendGate) like any search, so a spent day stops lookups, and a
+   * claim that was not looked up is simply not flagged. Per caller, the day
+   * is VERIFY_LIMITS (shared/plan.js); this window only stops a burst. */
+  verifySearchesPerHour: 120,
+  callerVerifySearchesPerHour: 20,
 };
 
 /**

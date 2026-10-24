@@ -184,6 +184,39 @@ test("the extension and the desktop share ONE daily source count: Free's 5 acros
   assert.equal(openaiLog("shared-app-over").length + openaiLog("shared-ext-over").length, 0);
 });
 
+/* Owner, 2026-10-23: the extension looks a claim up before flagging it, up to
+ * 5 per check. Those lookups say `verify: true` and draw on VERIFY_LIMITS
+ * (Free 10 a day), never on the writer's own "Find a source" searches. */
+test("a lookup (verify: true) has its own allowance: Free's 10 a day, and the writer's 5 searches are untouched", async () => {
+  const token = "tok-free-lookups";
+  seed("user:u-free-lookups", usageDay(), 5); // the writer's own searches, all spent
+  assert.equal((await sources("lk-own-over", { token })).status, 429, "Find a source is refused");
+  const db = new DatabaseSync(path.join(S.dataDir, "tracely.db"));
+  try {
+    db.exec("PRAGMA busy_timeout = 5000;");
+    const put = db.prepare("INSERT INTO entitlement_usage (account_id, day, kind, count, updated_at) VALUES (?, ?, 'verify_search', ?, ?) ON CONFLICT(account_id, day, kind) DO UPDATE SET count = excluded.count");
+    put.run("user:u-free-lookups", usageDay(), 9, Date.now());
+    put.run("user:u-student-lookups", usageDay(), 29, Date.now());
+    put.run("user:u-pro-lookups", usageDay(), 49, Date.now());
+  } finally {
+    db.close();
+  }
+  const tenth = await sources("lk-10", { token }, { verify: true });
+  assert.equal(tenth.status, 200, `the 10th lookup runs though the writer's searches are spent: ${JSON.stringify(tenth.body)}`);
+  const over = await sources("lk-over", { token }, { verify: true });
+  assert.equal(over.status, 429);
+  assert.equal(over.body.error.kind, "plan_limit");
+  assert.equal(over.body.error.message, "Today's 10 automatic lookups are used. They reset at midnight.");
+  assert.equal(openaiLog("lk-over").length, 0, "nothing sent past the allowance");
+  const e = await call("GET", "/api/entitlement", { token });
+  assert.deepEqual(e.body.usage.sources, { today: 5, month: 0 }, "the writer's count is exactly as it was");
+  // Student's 30 and Pro's 50: a lookup still runs where Free's would not.
+  assert.equal((await sources("lk-student-30", { token: "tok-student-lookups" }, { verify: true })).status, 200, "Student's 30th");
+  assert.equal((await sources("lk-student-31", { token: "tok-student-lookups" }, { verify: true })).status, 429);
+  assert.equal((await sources("lk-pro-50", { token: "tok-pro-lookups" }, { verify: true })).status, 200, "Pro's 50th");
+  assert.equal((await sources("lk-pro-51", { token: "tok-pro-lookups" }, { verify: true })).status, 429);
+});
+
 test("the monthly limit: refused with the month's copy even with searches left today, on both routes", async () => {
   const cases = [["free", 40], ["student", 100], ["pro", 250]];
   for (const [plan, monthLimit] of cases) {

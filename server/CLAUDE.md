@@ -101,6 +101,22 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   caller. The hourly `[tracely] joined` line counts it, to show whether
   other routes are worth the same. Tests: `test/verify-sources.test.js`, `test/boundary.test.js`,
   `test/mirror-contracts.test.js`.
+- **The extension's lookups** (2026-10-23, `verify: true` on `/api/sources`
+  and its stream). Since 2.21.73 the extension looks a claim up before it
+  flags it as needing evidence or a citation (extension/CLAUDE.md, "Look it
+  up before flagging it"). The search is the same search, metered apart:
+  - **Its own allowance:** `VERIFY_LIMITS` (`shared/plan.js`, 10/100 Free,
+    30/300 Student, 50/500 Pro), usage kind `verify_search`
+    (`lib/entitlement.js` `verifyQuota`/`recordVerify`). It never touches
+    `SOURCE_LIMITS`, so the writer's own searches are untouched.
+  - **Its own windows:** `SPEND.verifySearchesPerHour` (120, all free and
+    beta callers together) and `callerVerifySearchesPerHour` (20). The
+    extension pool's 15-an-hour web-search window would fill in minutes.
+  - **The same pool and reservation** as any search, so a spent day stops
+    lookups too. The try-out never sends it (`gate.demo` ignores it).
+  - The search's log line says `verify=1`. A refusal's message is for the
+    log only; the extension shows nothing for a lookup that failed.
+  Tests: `test/sources-quota.test.js`.
 - **`server/lib/reasoning.js`** is the desktop's reasoning, one export per
   route, on the relay's request/response contract — which is why the desktop's
   request builders and parsers did not change when it moved.

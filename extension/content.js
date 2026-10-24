@@ -60,7 +60,7 @@
   if (document.getElementById("tracely-host")) return;
 
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
-  const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation", "wrong_source"];
+  const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation", "wrong_source", "refuted", "unverified"];
   /* What each kind of writing is checked for (detectGenre says which kind it
      is). Quiet: homework, a poem, a story, a script — nothing in them is a
      claim to check or a source to cite. The writer's own account: a resume,
@@ -77,8 +77,14 @@
      suggestions" (needs_citation: accurate, but a reader would want a source)
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
-     only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings, genre, text, covered = false, attribution = "") => Boolean(f) && !GENRE_QUIET.has(genre) && ISSUE_VERDICTS.includes(f.verdict)
+     only that verdict; a false or incoherent sentence always shows.
+     `beforeLookup`: whether it would be shown were it not waiting to be
+     looked up (LOOKUP_FIRST) — what the lookup queue picks from. */
+  const flagShown = (f, settings, genre, text, covered = false, attribution = "", beforeLookup = false) => Boolean(f) && !GENRE_QUIET.has(genre) && ISSUE_VERDICTS.includes(f.verdict)
+    // Looked up before it is flagged (owner, 2026-10-23; LOOKUP_FIRST): a
+    // "Needs evidence" or "Missing citation" sentence is not drawn. Its
+    // lookup turns it into "refuted" or "unverified", or leaves it unflagged.
+    && (beforeLookup || typeof lookupHides !== "function" || !lookupHides(f.verdict))
     // What the sentence says about its own source decides its kind (owner,
     // 2026-10-14; attributionBySentence): a source it names but doesn't cite
     // ("a 2023 study conducted by Harvard University") is a citation issue,
@@ -86,8 +92,10 @@
     // students at a California high school") needs evidence, never "accurate
     // but uncited". A note carries it, so the model's softer verdict gives
     // way; a false or incoherent one never does.
-    && !(attribution === "named" && (f.verdict === "questionable" || f.verdict === "needs_citation"))
-    && !(attribution === "unnamed" && f.verdict === "needs_citation")
+    // Before its lookup, the claim behind either note is what is looked up:
+    // "never flag things for being unverified" (owner, 2026-10-23).
+    && !(attribution === "named" && (f.verdict === "questionable" || f.verdict === "needs_citation") && !(beforeLookup && f.verdict === "questionable"))
+    && !(attribution === "unnamed" && f.verdict === "needs_citation" && !beforeLookup)
     // A hidden switch must not keep acting on a value an earlier build saved.
     && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
     // The author's own account needs no source: a resume's figures and awards
@@ -131,8 +139,10 @@
   const checkPref = (k, d) => (typeof prefs === "object" && prefs ? prefs[k] ?? d : d);
   const checkThorough = () => checkPref("strictness", "balanced") === "thorough";
   function kindShown(f) {
+    // A source that says otherwise is a clear error, whatever the check's confidence.
+    if (f.verdict === "refuted") return true;
     if (checkPref("strictness", "balanced") === "clear" && (f.confidence ?? "medium") !== "high") return false;
-    if (f.verdict === "questionable") return checkPref("showEvidence", true) !== false;
+    if (f.verdict === "questionable" || f.verdict === "unverified") return checkPref("showEvidence", true) !== false;
     if (f.verdict === "needs_citation" || f.verdict === "wrong_source") return checkPref("showCitations", true) !== false;
     return true;
   }
@@ -210,7 +220,7 @@
      a fifth only the extension asks for: "wrong_source", a citation whose
      source could not be where the claim comes from (owner, 2026-10-15; the
      server's wrong-source check, FEATURES.citeFit). */
-  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Needs evidence", incoherent: "Doesn't make sense", needs_citation: "Missing citation", wrong_source: "Wrong source cited" };
+  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Needs evidence", incoherent: "Doesn't make sense", needs_citation: "Missing citation", wrong_source: "Wrong source cited", refuted: "False claim", unverified: "Unverified claim" };
   /* A "Needs evidence" sentence that already cites its source is not missing
      one: what could not be confirmed is that the source says it. Owner,
      2026-10-13, on "… scored approximately 65% higher … (Johnson, 2023)":
@@ -218,7 +228,10 @@
      gave". Its card says so and offers "Find the cited work", and Tracely
      spends no search on new evidence for it (EVIDENCE_FIRST). */
   const citedClaim = (verdict, text) => verdict === "questionable" && hasCitationMark(text);
-  const verdictLabel = (verdict, text) => (citedClaim(verdict, text) ? "Source not confirmed" : VERDICT_LABEL[verdict]);
+  // A looked-up claim nothing backs is named for what it is: a statistic (a
+  // number the reader would check), else a claim (LOOKUP_FIRST).
+  const verdictLabel = (verdict, text) => (citedClaim(verdict, text) ? "Source not confirmed"
+    : verdict === "unverified" && typeof isStatistic === "function" && isStatistic(text) ? "Unverified statistic" : VERDICT_LABEL[verdict]);
   const AUTO_SOURCE_VERDICTS = ["false", "questionable", "needs_citation"];
   // The mark vocabulary is the desktop app's (PROBLEM_COLOR in
   // src/renderer/src/components/problemCopy.ts, COLORS in server/shared/marks.js;
@@ -230,9 +243,12 @@
   // A writing note (note_tip) was blue; writing tips are off (FEATURES), so
   // no note shares it. Five verdicts on three colours, so the card TITLE is
   // what tells false from incoherent; colour alone never has to.
-  const MARK_COLORS = { false: "#d93636", questionable: "#2563eb", incoherent: "#d93636", needs_citation: "#ffb800", wrong_source: "#ffb800", cite_tip: "#ffb800", note_tip: "#2563eb" };
-  const VERDICT_WASH = { false: "#fdecec", questionable: "#e9effd", incoherent: "#fdecec", needs_citation: "#fff4d6", wrong_source: "#fff4d6" };
-  const VERDICT_TEXT = { false: "#d93636", questionable: "#1d4ed8", incoherent: "#d93636", needs_citation: "#a67500", wrong_source: "#a67500" };
+  // A claim its lookup found false ("refuted") or nothing backs
+  // ("unverified") is red: the owner's call, 2026-10-23, that Tracely says
+  // which it is rather than "needs evidence" (LOOKUP_FIRST).
+  const MARK_COLORS = { false: "#d93636", questionable: "#2563eb", incoherent: "#d93636", needs_citation: "#ffb800", wrong_source: "#ffb800", refuted: "#d93636", unverified: "#d93636", cite_tip: "#ffb800", note_tip: "#2563eb" };
+  const VERDICT_WASH = { false: "#fdecec", questionable: "#e9effd", incoherent: "#fdecec", needs_citation: "#fff4d6", wrong_source: "#fff4d6", refuted: "#fdecec", unverified: "#fdecec" };
+  const VERDICT_TEXT = { false: "#d93636", questionable: "#1d4ed8", incoherent: "#d93636", needs_citation: "#a67500", wrong_source: "#a67500", refuted: "#d93636", unverified: "#d93636" };
   const MARK_PENDING = "#9a9ba1"; // a faint solid grey line while a sentence's check is in flight
 
   /* The bare-bones build: fact-checking (underline, card, suggested fix) and
@@ -247,6 +263,7 @@
     deepDive: false,      // "Explain in depth" (Pro) in the fix card and the widget cards — off (owner, 2026-10-13: "it should not say explain in depth for pro"); Student and Pro get evidence recommendations instead (canRecommend)
     citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
+    lookupFirst: true,    // a "Needs evidence" or "Missing citation" claim is looked up before it is flagged: refuted, unverified, or no flag (LOOKUP_FIRST; owner, 2026-10-23)
     evidenceHints: true,  // "Evidence recommendations": suggested, searched only on a click (evidenceCandidates) — Student and Pro only (canRecommend)
     resumeTips: false,    // on a resume: free format rules, plus /api/review's bullet and typo notes — off: no writing tips (owner, 2026-10-13)
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
@@ -287,9 +304,9 @@
      drawMarginIcons) — the same icons as the panel header's counts — and by
      the legend, which shows each line with its icon (legendHtml). */
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
-  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "solid", needs_citation: "solid", wrong_source: "solid", cite_tip: "solid", note_tip: "solid" };
+  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "solid", needs_citation: "solid", wrong_source: "solid", refuted: "solid", unverified: "solid", cite_tip: "solid", note_tip: "solid" };
   // Which header kind (TALLY_ICON) each mark's icon is: wrong, worth checking, a citation, the writing.
-  const MARK_ICON = { false: "wrong", incoherent: "wrong", questionable: "check", needs_citation: "cite", wrong_source: "cite", cite_tip: "cite", note_tip: "writing" };
+  const MARK_ICON = { false: "wrong", incoherent: "wrong", questionable: "check", needs_citation: "cite", wrong_source: "cite", refuted: "wrong", unverified: "wrong", cite_tip: "cite", note_tip: "writing" };
   const MARK_ICON_RANK = { wrong: 4, check: 3, cite: 2, writing: 1 }; // one icon a line: the most serious
   // note_tip: a writing-feedback note on one sentence (essayFeedbackTips) —
   // "needs specific evidence", "explain this evidence". Blue (owner,
@@ -885,7 +902,7 @@
 
   // A verdict's dot-colour class suffix (the widget CSS's .d-*).
   function verdictKind(v) {
-    return v === "false" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" || v === "wrong_source" ? "cite" : v === "incoherent" ? "inco" : "ok";
+    return v === "false" || v === "refuted" || v === "unverified" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" || v === "wrong_source" ? "cite" : v === "incoherent" ? "inco" : "ok";
   }
 
   /* The widget cards' block (docs panel and field mode), from deepView.
@@ -3383,7 +3400,7 @@
      sentence as written). The card's fix is the way forward; the fixed
      sentence is checked afresh, and its Find a source then looks for sources
      that back it. */
-  const claimIsWrong = (verdict) => verdict === "false" || verdict === "incoherent";
+  const claimIsWrong = (verdict) => verdict === "false" || verdict === "incoherent" || verdict === "refuted";
   const citableHere = (src) => src?.stance !== "refutes";
   const DISAGREE_COPY = {
     find: "See what sources say",
@@ -3395,7 +3412,7 @@
     const all = (Array.isArray(list) ? list : []).filter(sourceAllowed);
     const unread = all.filter((s) => s && s.verified === false);
     const keep = all.filter((s) => s && s.verified !== false && (s.stance === undefined || s.stance === "manual" || s.stance === "supports" ||
-      (s.stance === "refutes" && (verdict === "false" || verdict === "incoherent"))));
+      (s.stance === "refutes" && claimIsWrong(verdict))));
     // A source that backs all but one small detail (the server's detail check,
     // sourceVerify.js coverDetail): never backing as written; offered as
     // "remove the detail" instead (TRIM_COPY), the most citable one.
@@ -3495,6 +3512,110 @@
   // The note under a card whose search found nothing to cite.
   const unbackedNote = (st, verdict) => (isEvidenceFirst(verdict) ? EVIDENCE_COPY.none(st)
     : st?.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st?.unread?.length ?? 0));
+
+  /* ── look it up before flagging it ─────────────────────────────────────
+     Owner, 2026-10-23: "instead of saying that stuff like this arent
+     confirmed, look them up before flagging them and instead if they are
+     right dont flag them at all and if they arent flag them as false claim
+     … Never flag things for being unverified, you call shots". And of a
+     claim nothing backs: "unverified claim but be more assertive and dont act
+     like tracely just didnt find it … state recommend deleting it".
+     A sentence the check marks "Needs evidence" or "Missing citation"
+     (LOOKUP_FIRST) is not drawn (flagShown). Tracely searches it first: up to
+     LOOKUP.perCheck a check, statistics first, then named or cited sources,
+     then studies (lookupPicks), at most LOOKUP.perMinute a minute (the server
+     allows a caller 4), on an allowance of their own (the request says
+     `verify: true`: the server's VERIFY_LIMITS, Free 10 a day), never the
+     writer's "Find a source" searches. What the lookup found (lookupOutcome):
+     - a source backs it: no flag. If the sentence cites nothing, the source
+       goes under "Sources you could cite" in the panel (couldCite);
+     - a source says otherwise: "False claim" (verdict "refuted", red), with
+       what the source says and the card's fix;
+     - nothing it read backs it: "Unverified statistic" or "Unverified claim"
+       (verdict "unverified", red), which recommends deleting it;
+     - it found sources but could open none, or the search failed: no flag.
+       A later check may look again (LOOKUP.retryMs).
+     The outcome is kept with the sentence's verdict (`lookup`, `from`), so a
+     sentence is looked up once while it stands. Settings → Checking → "Look
+     for evidence automatically" off (prefs.autoEvidence) brings back the
+     marks as they were, unsearched. The unnamed-source note ("vague", "Needs
+     evidence") is not shown while this is on (tipKindShown): the lookup
+     decides instead. */
+  const LOOKUP_FIRST = ["questionable", "needs_citation"];
+  const LOOKUP = { perCheck: 5, perMinute: 3, retryMs: 10 * 60_000 };
+  function lookupFirstOn() { return typeof FEATURES === "object" && FEATURES.lookupFirst === true && checkPref("autoEvidence", true) !== false; }
+  function lookupHides(verdict) { return lookupFirstOn() && LOOKUP_FIRST.includes(verdict); }
+  // A number a reader would check: citationWorthy's quantity rule.
+  function isStatistic(text) { return WORTHY_QUANTITY.test(WORTHY_NOT_A_QUANTITY.reduce((s, re) => s.replace(re, " "), String(text ?? ""))); }
+  const LOOKUP_COPY = {
+    unverified: "Tracely searched for this and nothing backs it. It may be made up, so we recommend deleting it, or replacing it with a claim you can source.",
+    unverifiedStudy: "Tracely searched for this and nothing backs it. It may be made up, so we recommend deleting it, or replacing it with evidence Tracely finds on the same point.",
+    // A text field can't be edited from the card: the writer deletes it.
+    unverifiedField: "Tracely searched for this and nothing backs it. It may be made up, so we recommend deleting it from your text, or replacing it with a claim you can source.",
+    refuted: (src) => {
+      const q = String(src?.quote ?? "").replace(/\s+/g, " ").trim();
+      const who = String(src?.publisher ?? "").trim();
+      return q ? `A source says otherwise${who ? ` (${who})` : ""}: “${q}”` : "A source says otherwise.";
+    },
+    couldCite: "Sources you could cite",
+    backed: "A source backs this",
+    couldCiteNote: "These sentences check out. Cite the source so your reader can check them too.",
+  };
+  /* What a lookup's sources say about the sentence: "backed", "refuted",
+     "unverified" or "unread". Only a source the server read counts
+     (verified !== false); a page it couldn't open says nothing either way. */
+  function lookupOutcome(sources) {
+    const all = (Array.isArray(sources) ? sources : []).filter((s) => s && typeof s === "object" && sourceAllowed(s));
+    const read = all.filter((s) => s.verified !== false);
+    if (read.some((s) => s.stance === "supports")) return "backed";
+    if (read.some((s) => s.stance === "refutes")) return "refuted";
+    if (all.length && !read.length) return "unread";
+    return "unverified";
+  }
+  /* The finding as its lookup leaves it. Refuted and unverified become those
+     verdicts (`from`: what the check said); backed and unread keep theirs,
+     and LOOKUP_FIRST verdicts are not drawn. An unverified claim's fix is
+     deleting it, so the check's rewrite goes; a refuted one keeps its fix. */
+  function lookedUp(f, outcome, sources) {
+    if (!f || typeof f !== "object") return f;
+    const from = f.from ?? f.verdict;
+    if (outcome === "refuted") {
+      const src = (Array.isArray(sources) ? sources : []).find((s) => s?.stance === "refutes" && s.verified !== false && s.quote)
+        ?? (Array.isArray(sources) ? sources : []).find((s) => s?.stance === "refutes" && s.verified !== false) ?? null;
+      return { ...f, verdict: "refuted", from, lookup: outcome, explanation: LOOKUP_COPY.refuted(src) };
+    }
+    if (outcome === "unverified") return { ...f, verdict: "unverified", from, lookup: outcome, explanation: LOOKUP_COPY.unverified, revision: "" };
+    return { ...f, lookup: outcome };
+  }
+  // Statistics first, then a source the sentence names or cites, then a study, then the rest; in reading order within each.
+  const lookupRank = (text) => (isStatistic(text) ? 0 : hasCitationMark(text) || sourceNamedIn(text) ? 1 : STUDY_REPORTS.test(text) || WORTHY_FINDING.test(text) ? 2 : 3);
+  function lookupPicks(items, n = LOOKUP.perCheck) {
+    return (Array.isArray(items) ? items : []).map((it, i) => ({ it, i, r: lookupRank(it.text) }))
+      .sort((a, b) => a.r - b.r || a.i - b.i).slice(0, Math.max(0, n)).map((x) => x.it);
+  }
+  /* "Sources you could cite" (LOOKUP_COPY.couldCite): a looked-up sentence a
+     source backs, that cites nothing, with the sources its lookup found. It
+     is never a flag: the panel offers them folded, at its foot. */
+  function couldCiteItems(segments, cache, dismissed, sourcesMap) {
+    const out = [];
+    const seen = new Set();
+    for (const seg of Array.isArray(segments) ? segments : []) {
+      if (!seg || seen.has(seg.hash)) continue;
+      seen.add(seg.hash);
+      const f = cache.get(seg.hash);
+      if (f?.lookup !== "backed" || !LOOKUP_FIRST.includes(f.verdict) || dismissed.has(seg.hash) || neverFlagged(seg.text)) continue;
+      if (hasCitationMark(seg.text) || !sourcesMap.get(seg.hash)?.list?.length) continue;
+      out.push(seg);
+    }
+    return out;
+  }
+  /* Paced like a person pressing: at most `perMinute` lookups start in any
+     minute. `starts` is the caller's list of start times; returns how long to
+     wait before the next may start. */
+  function lookupWaitMs(starts, now = Date.now(), perMinute = LOOKUP.perMinute) {
+    const recent = starts.filter((t) => now - t < 60_000).sort((a, b) => a - b);
+    return recent.length < perMinute ? 0 : 60_000 - (now - recent[recent.length - perMinute]) + 50;
+  }
   /* A study Tracely can't find. Owner, 2026-10-15, on "A study involving 12
      college students found that 10 participants reported positive
      experiences using AI": "something like this should be flagged as should
@@ -3574,15 +3695,18 @@
     }
     return null;
   }
-  // Under a card: the head, what to do, the replacement (or the search for it), then the mode's buttons.
-  function unfoundHtml(rep, actionsHtml, locked) {
+  /* Under a card: the head, what to do, the replacement (or the search for it), then the mode's buttons.
+     An unverified claim (LOOKUP_FIRST) has said all that in its card's title and explanation
+     (`bare`), and only a study can be replaced with evidence (`study`). */
+  function unfoundHtml(rep, actionsHtml, locked, { bare = false, study = true } = {}) {
     const body = locked ? UNFOUND_COPY.body : UNFOUND_COPY.bodyPaid;
     const repHtml = rep?.text ? `<div class="fix"><div class="fix-label">${esc(UNFOUND_COPY.label)}</div><div class="fix-text">${esc(rep.text)}</div><div class="src-meta">${esc(rep.src.title || rep.src.url)} · ${sourceMetaHtml(rep.src)}</div></div>`
       : rep?.loading ? `<div class="loading">${esc(UNFOUND_COPY.finding)}</div>`
         : rep?.none ? `<div class="loading">${esc(UNFOUND_COPY.none)}</div>`
           : rep?.failed ? `<div class="loading">${esc(rep.failed)}</div>` : "";
-    return `<div class="unfound"><div class="trim-head">${esc(UNFOUND_COPY.head)}</div><div class="src-snip">${esc(body)}</div>${repHtml}<div class="row">${actionsHtml}</div>`
-      + `${locked ? `<div class="ev-locked"><span>${esc(UNFOUND_COPY.locked)}</span><button class="act" data-rec-plans="1">${esc(RECOMMEND_COPY.seePlans)}</button></div>` : ""}</div>`;
+    const head = bare ? "" : `<div class="trim-head">${esc(UNFOUND_COPY.head)}</div><div class="src-snip">${esc(body)}</div>`;
+    return `<div class="unfound">${head}${repHtml}<div class="row">${actionsHtml}</div>`
+      + `${locked && study ? `<div class="ev-locked"><span>${esc(UNFOUND_COPY.locked)}</span><button class="act" data-rec-plans="1">${esc(RECOMMEND_COPY.seePlans)}</button></div>` : ""}</div>`;
   }
   /* What a source shows under its title: the receipt — "The source says:
      “…”" and where it was read — when the server read it, else the
@@ -3789,7 +3913,7 @@
     return all.length === 1 && !all[0].shared ? all[0] : null;
   }
   // A verdict that puts a cited sentence in doubt puts its citation in doubt.
-  const CITED_VERDICTS = ["false", "questionable", "incoherent"];
+  const CITED_VERDICTS = ["false", "questionable", "incoherent", "refuted", "unverified"];
   function flaggedCitationOf(verdict, sentence) {
     return CITED_VERDICTS.includes(verdict) ? lookupableCitation(sentence) : null;
   }
@@ -4303,7 +4427,10 @@
   // Settings → Checking: a note of a kind the writer turned off is not listed (the verdicts' half is flagShown). No storage, no switch.
   // (`never`: the never-flag list's version, so the notes' memo lists them again when it changes.)
   const tipKindsOn = () => (typeof prefs === "object" && prefs ? { check: prefs.showEvidence !== false, cite: prefs.showCitations !== false, never: typeof ignoreGen === "number" ? ignoreGen : 0 } : { check: true, cite: true, never: 0 });
-  const tipKindShown = (t) => tipKindsOn()[tipCat(t)] !== false && !neverFlagged(t.quote);
+  const tipKindShown = (t) => tipKindsOn()[tipCat(t)] !== false && !neverFlagged(t.quote)
+    // An unnamed source's "Needs evidence" note: while claims are looked up
+    // before they are flagged, the lookup decides (LOOKUP_FIRST), never a note.
+    && !(typeof lookupFirstOn === "function" && lookupFirstOn() && t.kind === "vague");
   // The header's counts: the claims' verdicts, and every note the list shows.
   function tallyOf(verdicts, tips) {
     const c = { wrong: 0, check: 0, cite: 0, writing: 0 };
@@ -4397,6 +4524,21 @@
         ${sourcesFor(seg)}
       </div>`).join("");
     return `<div class="evidence">${head}<div class="ev-intro">${esc(RECOMMEND_COPY.intro)}</div>${cards}</div>`;
+  }
+  /* The panel's "Sources you could cite" (couldCiteItems): folded like the
+     evidence section, neutral, each card the sentence and its sources with
+     the mode's own Cite in doc and Copy cite (`sourcesFor`). */
+  function couldCiteSectionHtml(items, open, sourcesFor) {
+    if (!items.length) return "";
+    const head = `<button class="ev-toggle" id="couldCiteToggle" aria-expanded="${open}">${open ? "▾" : "▸"} ${esc(LOOKUP_COPY.couldCite)} (${items.length})</button>`;
+    if (!open) return `<div class="evidence could-cite">${head}</div>`;
+    const cards = items.map((seg) => `
+      <div class="card ev-card" data-card="${seg.hash}">
+        <div class="top"><span class="ctitle">${esc(LOOKUP_COPY.backed)}</span><button class="x" data-dismiss="${seg.hash}" title="Not needed" aria-label="Not needed">${CLOSE_SVG}</button></div>
+        <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
+        ${sourcesFor(seg)}
+      </div>`).join("");
+    return `<div class="evidence could-cite">${head}<div class="ev-intro">${esc(LOOKUP_COPY.couldCiteNote)}</div>${cards}</div>`;
   }
   /* Resume tips: the free format rules first (instant), then what /api/review
      found, a line once — a model note on a line the rules already flagged is
@@ -6001,6 +6143,7 @@
     let orphaned = false; // the extension was reloaded under this tab — see standDown
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
+    let showCouldCite = false; // so does "Sources you could cite" (couldCiteSectionHtml)
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
     let docKind = "essay";    // detectKind of the last read (WRITING_KINDS)
     let docShown = "";        // the kind the header names, "" when unsure (readKind)
@@ -6166,6 +6309,11 @@
           holdOmitted(heldHashes, todo, data.findings, Date.now());
           persistCaches();
           autoFindSources(data.findings ?? []); // fire-and-forget, capped
+        } else if (!lookupKicked && lookupFirstOn()) {
+          // The first read of a Doc whose verdicts were all kept: claims a
+          // build before lookups left unlooked-up are looked up once.
+          lookupKicked = true;
+          autoFindSources([]);
         }
         statusKind = "idle";
         const n = currentIssues().length + activeFlowIssues().length;
@@ -8200,8 +8348,9 @@
       }
 
       // A study nothing like it could be found (owner, 2026-10-15): flagged to be deleted, or replaced with evidence.
-      if (unfoundStudy(seg.text, sourcesMap.get(hash))) {
-        put(dmHead(color, UNFOUND_COPY.head));
+      // A looked-up claim nothing backs ("unverified", owner 2026-10-23) is the same card, in its own words.
+      if (f.verdict === "unverified" || unfoundStudy(seg.text, sourcesMap.get(hash))) {
+        put(dmHead(color, f.verdict === "unverified" ? verdictLabel(f.verdict, seg.text) : UNFOUND_COPY.head));
         paintUnfound(hash, put);
         const dis = dmBtn(POP_COPY.dismiss, false);
         dis.addEventListener("click", () => {
@@ -8368,7 +8517,14 @@
     function paintUnfound(hash, put) {
       const rep = replaceMap.get(hash);
       const paid = canRecommend();
-      put(dmBody(paid ? UNFOUND_COPY.bodyPaid : UNFOUND_COPY.body));
+      /* A looked-up claim nothing backs ("unverified", LOOKUP_FIRST) says so
+         in its own words and recommends deleting it. "Replace with evidence"
+         rebuilds a study's point (studyFinding), so only a study offers it. */
+      const f = cache.get(hash);
+      const text = segments.find((s) => s.hash === hash)?.text ?? "";
+      const unverified = f?.verdict === "unverified";
+      const study = !unverified || unfindableStudy(text);
+      put(dmBody(unverified ? (study && paid ? LOOKUP_COPY.unverifiedStudy : LOOKUP_COPY.unverified) : paid ? UNFOUND_COPY.bodyPaid : UNFOUND_COPY.body));
       if (rep?.text) put(dmBlock(UNFOUND_COPY.label, dmQuote(rep.text)), dmHint(rep.src.title || rep.src.url));
       else if (rep?.loading) put(dmHint(UNFOUND_COPY.finding));
       else if (rep?.none) put(dmHint(UNFOUND_COPY.none));
@@ -8390,13 +8546,19 @@
         b.addEventListener("click", () => { popPinned = true; docDeleteSentence(hash); });
         btns.push(b);
       }
-      if (paid && !rep) {
+      if (paid && !rep && study) {
         const b = dmBtn(UNFOUND_COPY.replace, !btns.length);
         b.addEventListener("click", () => findReplacement(hash));
         btns.push(b);
       }
       if (btns.length) put(dmActions(...btns.slice(0, 2)));
-      if (!paid) {
+      // A source backed all of it but one detail: removing that detail is the other way out.
+      if (unverified && sourcesMap.get(hash)?.partial) {
+        const trim = dmBtn(TRIM_COPY.remove, false, { wide: true });
+        trim.addEventListener("click", () => setStep(hash, { step: "sources", searched: true }));
+        put(trim);
+      }
+      if (!paid && study) {
         const plans = dmBtn(RECOMMEND_COPY.seePlans, false);
         plans.addEventListener("click", () => openOrderPage());
         put(dmHint(UNFOUND_COPY.locked), dmActions(plans));
@@ -8524,8 +8686,8 @@
         put(dmActions(rm, keep));
         return;
       }
-      if (unfoundStudy(seg.text, s)) {
-        put(dmHead(MARK_COLORS.questionable, UNFOUND_COPY.head), noteEl());
+      if (f?.verdict === "unverified" || unfoundStudy(seg.text, s)) {
+        put(dmHead(MARK_COLORS[f?.verdict === "unverified" ? "unverified" : "questionable"], f?.verdict === "unverified" ? verdictLabel(f.verdict, seg.text) : UNFOUND_COPY.head), noteEl());
         paintUnfound(hash, put);
         const out = dmBtn(POP_COPY.back, false);
         out.addEventListener("click", back);
@@ -9007,12 +9169,15 @@
       render();
     }
     async function fetchSources(hash, auto = false, { batch = false } = {}) {
+      const lookup = arguments[2]?.lookup === true; // (read apart: the line above is a test anchor)
       // Returns false when NOTHING was started (another claim's search holds
       // the slot, or the sentence vanished) so callers can restore their UI
       // instead of pretending a search is running. `batch`: one of "Let
       // Tracely fix these"'s searches, paced by fixSearch — it neither waits
       // for nor holds the slot a card's search uses, and says nothing in the
-      // status line (the list says it).
+      // status line (the list says it). `lookup`: the claim looked up before
+      // it is flagged (LOOKUP_FIRST, with `auto`): sent as verify: true, on
+      // its own allowance, and what it finds decides the sentence's verdict.
       if (sourcesMap.get(hash)?.list?.length) return true; // cached — never re-search
       if (sourcesMap.get(hash)?.loading) return true; // already running: started on the press (prestartSearch)
       // Signed out (needsSignIn): nothing is searched. The card that asked says to sign in; an automatic or batch search doesn't run.
@@ -9065,19 +9230,35 @@
       try {
         const data = await searchSources({
           claim: seg.text,
-          correction: f?.revision || undefined,
+          correction: (!lookup && f?.revision) || undefined, // a lookup asks about the sentence as written (and so can offer to trim a detail)
           context: searchContext(docText, seg), // the sentence's neighbourhood (C2)
           // The model only: the server ignores a client's effort on searches
           // and runs them at low (shared/plan.js ROUTE_EFFORT).
           model: CHECK_MODEL,
+          ...(lookup ? { verify: true } : {}), // a lookup: the server's VERIFY_LIMITS, never the writer's searches
         }, onEvent);
-        const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);
+        // A lookup decides the verdict first (lookedUp), so a refuted claim's
+        // list keeps the sources that refute it (backingSources).
+        let verdict = f?.verdict;
+        if (lookup && cache.has(hash)) {
+          const next = lookedUp(cache.get(hash), lookupOutcome(data.sources), data.sources);
+          cache.set(hash, next);
+          verdict = next.verdict;
+          scheduleDocsMarks(); // a refuted or unverified claim is drawn now
+        }
+        const { list, unbacked, unread, partial } = backingSources(data.sources, verdict);
         sourcesMap.set(hash, { loading: false, list, unbacked, unread, partial, copiedUrl: null });
-        searchesOut = false;
+        if (!lookup) searchesOut = false; // a lookup's allowance says nothing about the writer's searches
         persistCaches();
         noteSourcesReady(hash, list.length, auto);
       } catch (err) {
         sourcesMap.delete(hash);
+        if (lookup) {
+          // Nobody asked: nothing is said, the claim stays unflagged, and a
+          // later check may look again. Out of lookups stops them for now.
+          if (err?.kind === "plan_limit") lookupsOut = true;
+          return true;
+        }
         // Said in the card that was waiting on it; an automatic search's
         // failure only where the writer opened its card (the panel stays quiet).
         // Out of searches (plan_limit) is the card's own block (searchGateHtml), not an error in the header.
@@ -9211,10 +9392,66 @@
       return `${line}<div class="live-strip">${icons}</div>`;
     }
 
+    /* The claims looked up before they are flagged (LOOKUP_FIRST): every
+       sentence whose verdict waits on a lookup and would be shown without one
+       (flagShown's beforeLookup), not yet looked up, not dismissed, and not
+       one whose lookup failed in the last LOOKUP.retryMs. */
+    let lookingUp = false;
+    let lookupAgain = false; // a check asked while the lookups ran: go round once more for its claims
+    let lookupKicked = false; // the first read with nothing new to check has started the lookups once
+    let lookupsOut = false; // the lookups' allowance is spent (plan_limit): none until the page loads again
+    const lookupTried = new Map(); // hash → when a lookup of it last failed
+    const lookupStarts = []; // when recent lookups started (lookupWaitMs)
+    function lookupCandidates() {
+      const out = [];
+      const seen = new Set();
+      for (const seg of segments) {
+        if (!seg.checkable || seen.has(seg.hash)) continue;
+        seen.add(seg.hash);
+        const f = cache.get(seg.hash);
+        if (!f || f.lookup || !LOOKUP_FIRST.includes(f.verdict)) continue;
+        if (dismissed.has(seg.hash) || editedHashes.has(seg.hash) || sourcesMap.get(seg.hash)?.loading) continue;
+        if (Date.now() - (lookupTried.get(seg.hash) ?? -Infinity) < LOOKUP.retryMs) continue;
+        if (!flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash), sourceAttr.get(seg.hash), true)) continue;
+        out.push({ hash: seg.hash, text: seg.text });
+      }
+      return out;
+    }
+    // Up to LOOKUP.perCheck of them, one at a time, paced, the writer's own search always first.
+    async function lookUpClaims() {
+      if (lookingUp) { lookupAgain = true; return; } // a check landed meanwhile: its claims are next
+      if (lookupsOut || needsSignIn()) return;
+      lookingUp = true;
+      try {
+        do {
+          lookupAgain = false;
+          for (const { hash } of lookupPicks(lookupCandidates())) {
+            if (lookupsOut || needsSignIn()) break;
+            for (let i = 0; sourcesInflight && i < 120; i++) await new Promise((r) => setTimeout(r, 500));
+            const f = cache.get(hash);
+            if (!f || f.lookup || !LOOKUP_FIRST.includes(f.verdict) || !segments.some((s) => s.hash === hash)) continue;
+            // The writer searched it already: what that found answers the lookup.
+            const had = sourcesMap.get(hash);
+            if (had?.list?.length) { cache.set(hash, lookedUp(f, "backed", had.list)); persistCaches(); continue; }
+            for (let w = lookupWaitMs(lookupStarts); w > 0; w = lookupWaitMs(lookupStarts)) await new Promise((r) => setTimeout(r, w));
+            lookupStarts.push(Date.now());
+            if (lookupStarts.length > 10) lookupStarts.shift();
+            await fetchSources(hash, true, { lookup: true });
+            if (!cache.get(hash)?.lookup) lookupTried.set(hash, Date.now()); // failed: a later check may look again
+            render();
+          }
+        } while (lookupAgain && !lookupsOut);
+      } finally {
+        lookingUp = false;
+      }
+    }
+
     // Auto-sources for flagged claims — capped per cycle and per rolling hour.
     // "Needs evidence" always (EVIDENCE_FIRST); the rest only with Auto-src on (cost).
+    // With claims looked up before they are flagged (lookupFirstOn), that is all it does.
     async function autoFindSources(findings) {
       if (prefs.autoEvidence === false) return; // Settings → Checking: the writer searches when they choose
+      if (lookupFirstOn()) return lookUpClaims();
       const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
       const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
       const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(),
@@ -10022,10 +10259,10 @@
         },
       });
     }
-    // Under a card (panel): Delete, or the evidence that can take the sentence's place.
-    function unfoundActionsHtml(hash) {
+    // Under a card (panel): Delete, or the evidence that can take the sentence's place (a study's only).
+    function unfoundActionsHtml(hash, study = true) {
       const rep = replaceMap.get(hash);
-      const paid = canRecommend();
+      const paid = canRecommend() && study;
       if (!canEditDoc()) {
         // Docs can't be edited from here: the replacement can still be copied; deleting is the writer's.
         const copy = rep?.text ? `<button class="act primary" data-unfound-copy="${hash}">${esc(UNFOUND_COPY.copy)}</button>` : "";
@@ -10635,7 +10872,7 @@
     // (backingSources, and a stance that says so) — never one that merely
     // shares its topic, never one the server could not read. null: none does.
     function walkSource(list, verdict) {
-      return backingSources(list, verdict).list.find((s) => s.stance === "supports" || (s.stance === "refutes" && (verdict === "false" || verdict === "incoherent"))) ?? null;
+      return backingSources(list, verdict).list.find((s) => s.stance === "supports" || (s.stance === "refutes" && claimIsWrong(verdict))) ?? null;
     }
 
     /* Where the cursor starts: the last press (or Enter / Space) on Tracely's
@@ -12386,9 +12623,12 @@
               : `<button class="act primary" data-trim-copy="${seg.hash}">${copiedTrimHash === seg.hash ? "Copied ✓" : esc(TRIM_COPY.copy)}</button>`) +
               `<button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
             sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${editNoteHtml(`trim:${seg.hash}`)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
-          } else if (unfoundStudy(seg.text, st)) {
-            // A study nothing like it could be found: delete it, or (Student, Pro) put evidence in its place.
-            sourcesHtml = `<div class="sources">${unfoundHtml(replaceMap.get(seg.hash), unfoundActionsHtml(seg.hash), !canRecommend())}${editNoteHtml(`del:${seg.hash}`)}${editNoteHtml(`rep:${seg.hash}`)}</div>`;
+          } else if (cache.get(seg.hash)?.verdict === "unverified" || unfoundStudy(seg.text, st)) {
+            /* A study nothing like it could be found, or a looked-up claim nothing backs: delete it,
+               or (Student, Pro) put evidence in a study's place. */
+            const unverified = cache.get(seg.hash)?.verdict === "unverified";
+            const study = !unverified || unfindableStudy(seg.text);
+            sourcesHtml = `<div class="sources">${unfoundHtml(replaceMap.get(seg.hash), unfoundActionsHtml(seg.hash, study), !canRecommend(), { bare: unverified, study })}${editNoteHtml(`del:${seg.hash}`)}${editNoteHtml(`rep:${seg.hash}`)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
             sourcesHtml = `<div class="sources"><div class="loading">${esc(unbackedNote(st, cache.get(seg.hash)?.verdict))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st && !st.list?.length && isEvidenceFirst(cache.get(seg.hash)?.verdict)) {
@@ -12425,8 +12665,8 @@
            a URL" waits until a search has run for the sentence. */
         const cards = issues.map(({ seg, f }) => {
           const sourcesHtml = sourcesFor(seg);
-          // A study nothing like it could be found: its block (sourcesFor) is the card's one set of buttons.
-          const unfound = unfoundStudy(seg.text, sourcesMap.get(seg.hash));
+          // A study nothing like it could be found, or an unverified claim: its block (sourcesFor) is the card's one set of buttons.
+          const unfound = (f.verdict === "unverified" && !sourcesMap.get(seg.hash)?.partial) || unfoundStudy(seg.text, sourcesMap.get(seg.hash));
           const copied = copiedFixHash === seg.hash;
           const lead = !f.revision ? ""
             : canEditDoc() ? editBtnHtml(`fix:${seg.hash}`, "Apply fix", `data-doc-fix="${seg.hash}"`)
@@ -12468,6 +12708,10 @@
         const evidenceHtml = FEATURES.evidenceHints && genreWantsList(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash), !canRecommend())
           : "";
+        // Looked-up sentences that check out and cite nothing: their sources, offered folded (never a flag).
+        const couldCiteHtml = typeof lookupFirstOn === "function" && lookupFirstOn() && genreWantsList(docGenre) && checkPref("showCitations", true) !== false /* (absent from server/test's slices of render) */
+          ? couldCiteSectionHtml(couldCiteItems(segments, cache, dismissed, sourcesMap), showCouldCite, sourcesFor)
+          : "";
 
         // The last edit's Undo outlives its card: a fixed sentence's card goes
         // as soon as the sentence is re-read, so the Undo moves up here.
@@ -12484,7 +12728,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", kindTitle(docShown, docText), { note: genreNote(docGenre, docText, settings.citationStyle, docShown), power })}
           <div class="list">
-            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
+            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${couldCiteHtml}${evidenceHtml}
           </div>
           <div class="foot${offer || FEATURES.citeHintsToggle || FEATURES.autoSources ? "" : " empty"}">
             <span class="foot-left">
@@ -12539,6 +12783,7 @@
         for (const b of shadow.querySelectorAll("[data-fx-skip]")) b.addEventListener("click", () => skipFix(Number(b.dataset.fxSkip)));
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        shadow.getElementById("couldCiteToggle")?.addEventListener("click", () => { showCouldCite = !showCouldCite; render(); });
         for (const b of shadow.querySelectorAll("[data-rec-plans]")) b.addEventListener("click", () => openOrderPage());
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
           btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); requestDocsMarks(); });
@@ -12769,7 +13014,7 @@
     // removed with the dismissals when it is switched off.
     const FIELD_CACHE_KEY = "tracely.widget.vcache.field";
     const FIELD_CACHE_MAX = 400;
-    const STORED_VERDICTS = new Set(["accurate", "false", "questionable", "incoherent", "needs_citation", "wrong_source", "no_claim"]);
+    const STORED_VERDICTS = new Set(["accurate", "false", "questionable", "incoherent", "needs_citation", "wrong_source", "no_claim", "refuted", "unverified"]);
 
     // Per-site enable lives in chrome.storage.local ("enabledSites": [origin])
     // so the options page can list and manage it. The old per-site localStorage
@@ -12855,6 +13100,7 @@
     let orphaned = false; // the extension was reloaded under this tab — see standDownField
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
+    let showCouldCite = false; // so does "Sources you could cite" (couldCiteSectionHtml)
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
     let docKind = "essay";    // detectKind of the last read (WRITING_KINDS)
     let docShown = "";        // the kind the header names, "" when unsure (readKind)
@@ -13366,6 +13612,9 @@
           holdOmitted(heldHashes, todo, data.findings, Date.now());
           persistFieldCache();
           autoFindSources(data.findings ?? []); // fire-and-forget, capped
+        } else if (!lookupKicked && lookupFirstOn()) {
+          lookupKicked = true; // verdicts kept from an earlier visit: their claims are looked up once
+          autoFindSources([]);
         }
         statusKind = "idle";
         const n = currentIssues().length;
@@ -13424,9 +13673,11 @@
       render();
     }
     async function fetchSources(hash, auto = false) {
+      const lookup = arguments[2]?.lookup === true; // (read apart: the line above is a test anchor)
       // As in Docs mode: the writer's press always runs; an automatic search
       // waits for the writer's (it was the other way round, and a press
-      // during one did nothing).
+      // during one did nothing). `lookup`: as in Docs mode, the claim looked
+      // up before it is flagged (LOOKUP_FIRST), sent as verify: true.
       if (sourcesMap.get(hash)?.list?.length || sourcesMap.get(hash)?.loading) return; // found or running: never pay twice
       // Signed out (needsSignIn), as in Docs mode: the card says to sign in, and nothing automatic runs.
       if (needsSignIn()) {
@@ -13444,17 +13695,31 @@
       try {
         const data = await api("/api/sources", {
           claim: seg.text,
-          correction: f?.revision || undefined,
+          correction: (!lookup && f?.revision) || undefined, // a lookup asks about the sentence as written (and so can offer to trim a detail)
           context: searchContext(fieldText, seg), // the sentence's neighbourhood (C2)
           // The model only: the server ignores a client's effort on searches
           // and runs them at low (shared/plan.js ROUTE_EFFORT).
           model: CHECK_MODEL,
+          ...(lookup ? { verify: true } : {}), // a lookup: the server's VERIFY_LIMITS, never the writer's searches
         });
-        const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);
+        // A lookup decides the verdict first (lookedUp), as in Docs mode.
+        let verdict = f?.verdict;
+        if (lookup && cache.has(hash)) {
+          const next = lookedUp(cache.get(hash), lookupOutcome(data.sources), data.sources);
+          cache.set(hash, next);
+          verdict = next.verdict;
+          persistFieldCache();
+        }
+        const { list, unbacked, unread, partial } = backingSources(data.sources, verdict);
         sourcesMap.set(hash, { loading: false, list, unbacked, unread, partial, copiedUrl: null });
-        searchesOut = false;
+        if (!lookup) searchesOut = false;
       } catch (err) {
         sourcesMap.delete(hash);
+        if (lookup) {
+          // Nobody asked: nothing is said, and the claim stays unflagged.
+          if (err?.kind === "plan_limit") lookupsOut = true;
+          return;
+        }
         searchesOut = err?.kind === "plan_limit";
         sourceFailures.set(hash, { note: searchFailureNote(err), auto, kind: err?.kind });
         if (!auto && !searchesOut) statusKind = "error";
@@ -13465,10 +13730,61 @@
       }
     }
 
+    // The claims looked up before they are flagged, as in Docs mode (lookupCandidates, lookUpClaims).
+    let lookingUp = false;
+    let lookupAgain = false; // a check asked while the lookups ran: go round once more for its claims
+    let lookupKicked = false;
+    let lookupsOut = false;
+    const lookupTried = new Map();
+    const lookupStarts = [];
+    function lookupCandidates() {
+      const out = [];
+      const seen = new Set();
+      for (const seg of segments) {
+        if (!seg.checkable || seen.has(seg.hash)) continue;
+        seen.add(seg.hash);
+        const f = cache.get(seg.hash);
+        if (!f || f.lookup || !LOOKUP_FIRST.includes(f.verdict)) continue;
+        if (dismissed.has(seg.hash) || sourcesMap.get(seg.hash)?.loading) continue;
+        if (Date.now() - (lookupTried.get(seg.hash) ?? -Infinity) < LOOKUP.retryMs) continue;
+        if (!flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash), sourceAttr.get(seg.hash), true)) continue;
+        out.push({ hash: seg.hash, text: seg.text });
+      }
+      return out;
+    }
+    async function lookUpClaims() {
+      if (lookingUp) { lookupAgain = true; return; }
+      if (lookupsOut || needsSignIn()) return;
+      lookingUp = true;
+      try {
+        do {
+          lookupAgain = false;
+          for (const { hash } of lookupPicks(lookupCandidates())) {
+            if (lookupsOut || needsSignIn()) break;
+            for (let i = 0; sourcesInflight && i < 120; i++) await new Promise((r) => setTimeout(r, 500));
+            const f = cache.get(hash);
+            if (!f || f.lookup || !LOOKUP_FIRST.includes(f.verdict) || !segments.some((s) => s.hash === hash)) continue;
+            const had = sourcesMap.get(hash);
+            if (had?.list?.length) { cache.set(hash, lookedUp(f, "backed", had.list)); persistFieldCache(); continue; }
+            for (let w = lookupWaitMs(lookupStarts); w > 0; w = lookupWaitMs(lookupStarts)) await new Promise((r) => setTimeout(r, w));
+            lookupStarts.push(Date.now());
+            if (lookupStarts.length > 10) lookupStarts.shift();
+            await fetchSources(hash, true, { lookup: true });
+            if (!cache.get(hash)?.lookup) lookupTried.set(hash, Date.now());
+            render();
+          }
+        } while (lookupAgain && !lookupsOut);
+      } finally {
+        lookingUp = false;
+      }
+    }
+
     // Auto-sources — same toggle and rolling-hour guard as docs mode. Only
     // reachable after a check, which on a non-enabled site takes a click.
+    // With claims looked up before they are flagged (lookupFirstOn), that is all it does.
     async function autoFindSources(findings) {
       if (prefs.autoEvidence === false) return; // Settings → Checking: the writer searches when they choose
+      if (lookupFirstOn()) return lookUpClaims();
       const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
       const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
       const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(),
@@ -13863,13 +14179,16 @@
             // Backs all but one small detail (TRIM_COPY): remove it here, or keep it.
             const trimActs = `<button class="act primary" data-field-trim="${seg.hash}">${esc(TRIM_COPY.remove)}</button><button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
             sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
-          } else if (unfoundStudy(seg.text, st)) {
-            // A study nothing like it could be found: as in Docs, but a field cannot delete a sentence, so it says to.
+          } else if (cache.get(seg.hash)?.verdict === "unverified" || unfoundStudy(seg.text, st)) {
+            /* A study nothing like it could be found, or a looked-up claim nothing backs: as in Docs,
+               but a field cannot delete a sentence, so it says to. */
+            const unverified = cache.get(seg.hash)?.verdict === "unverified";
+            const study = !unverified || unfindableStudy(seg.text);
             const rep = replaceMap.get(seg.hash);
             const acts = rep?.text
               ? `<button class="act primary" data-unfound-apply="${seg.hash}">${fieldFixed.has(seg.hash) ? "Replaced ✓" : esc(UNFOUND_COPY.applyField)}</button><button class="act" data-unfound-copy="${seg.hash}">${esc(UNFOUND_COPY.copy)}</button>`
-              : canRecommend() && !rep ? `<button class="act" data-unfound-find="${seg.hash}">${esc(UNFOUND_COPY.replace)}</button>` : "";
-            sourcesHtml = `<div class="sources">${unfoundHtml(rep, acts, !canRecommend())}</div>`;
+              : canRecommend() && study && !rep ? `<button class="act" data-unfound-find="${seg.hash}">${esc(UNFOUND_COPY.replace)}</button>` : "";
+            sourcesHtml = acts || !unverified ? `<div class="sources">${unfoundHtml(rep, acts, !canRecommend(), { bare: unverified, study })}</div>` : "";
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
             sourcesHtml = `<div class="sources"><div class="loading">${esc(unbackedNote(st, cache.get(seg.hash)?.verdict))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st && !st.list?.length && isEvidenceFirst(cache.get(seg.hash)?.verdict)) {
@@ -13902,8 +14221,10 @@
         // A card: the Docs panel's (the clean frame), with Apply fix writing into the field.
         const cards = issues.map(({ seg, f }) => {
           const sourcesHtml = sourcesFor(seg);
-          // A study nothing like it could be found: its block (sourcesFor) is the card's one set of buttons.
-          const unfound = unfoundStudy(seg.text, sourcesMap.get(seg.hash));
+          // A study nothing like it could be found, or an unverified claim: its block (sourcesFor) is the card's one set of buttons.
+          const unfound = (f.verdict === "unverified" && !sourcesMap.get(seg.hash)?.partial) || unfoundStudy(seg.text, sourcesMap.get(seg.hash));
+          // A field can't be edited from the card: an unverified claim is the writer's to delete.
+          const expl = f.verdict === "unverified" ? LOOKUP_COPY.unverifiedField : f.explanation;
           const copied = copiedFixHash === seg.hash;
           const lead = f.revision ? `<button class="act primary" data-field-fix="${seg.hash}">${fieldFixed.has(seg.hash) ? "Fixed ✓" : "Apply fix"}</button>` : "";
           const copyIcon = f.revision ? `<button class="act icon" data-copy-fix="${seg.hash}" title="${copied ? "Copied" : "Copy fix"}" aria-label="Copy fix">${copied ? COPIED_SVG : COPY_SVG}</button>` : "";
@@ -13914,7 +14235,7 @@
               ${neverBtnHtml("data-never", seg.hash)}<button class="x" data-dismiss="${seg.hash}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
-            ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
+            ${expl ? `<div class="expl">${esc(expl)}</div>` : ""}
             ${deepHtml(seg.hash, f.verdict, (h) => `<button class="act primary" data-deep-fix="${h}">${fieldFixed.has(h) ? "Fixed ✓" : "Apply fix"}</button>`)}
             ${f.revision && !unfound ? `
             <div class="fix">
@@ -13941,6 +14262,10 @@
         const evidenceHtml = FEATURES.evidenceHints && genreWantsList(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash), !canRecommend())
           : "";
+        // Looked-up sentences that check out and cite nothing: their sources, offered folded (never a flag).
+        const couldCiteHtml = typeof lookupFirstOn === "function" && lookupFirstOn() && genreWantsList(docGenre) && checkPref("showCitations", true) !== false /* (absent from server/test's slices of render) */
+          ? couldCiteSectionHtml(couldCiteItems(segments, cache, dismissed, sourcesMap), showCouldCite, sourcesFor)
+          : "";
 
         const emptyMsg = statusKind === "offline"
           ? "Tracely could not reach its server. Try again in a moment."
@@ -13958,7 +14283,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", kindTitle(docShown, fieldText), { note: genreNote(docGenre, fieldText, settings.citationStyle, docShown), power: enabled ? siteSwitch : "" })}
           <div class="list">
-            ${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
+            ${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${couldCiteHtml}${evidenceHtml}
           </div>
           <div class="foot${!enabled || FEATURES.citeHintsToggle || FEATURES.autoSources ? "" : " empty"}">
             <span class="foot-left">
@@ -13991,6 +14316,7 @@
         shadow.getElementById("siteSwitch").addEventListener("click", () => setSiteEnabled(!enabled));
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        shadow.getElementById("couldCiteToggle")?.addEventListener("click", () => { showCouldCite = !showCouldCite; render(); });
         for (const b of shadow.querySelectorAll("[data-rec-plans]")) b.addEventListener("click", () => openOrderPage());
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
           btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); scheduleMarks(); });

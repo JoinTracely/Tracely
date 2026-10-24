@@ -364,8 +364,70 @@ should be blue instead of orange."
 
 Tests: `server/test/ext-no-overreach.test.js`, `ext-fix-all.test.js`.
 
+## Look it up before flagging it
+
+Since 2.21.73. Owner, 2026-10-23: "look them up before flagging them and
+instead if they are right dont flag them at all and if they arent flag them
+as false claim … Never flag things for being unverified, you call shots".
+Of a claim nothing backs: "unverified claim but be more assertive and dont
+act like tracely just didnt find it … state recommend deleting it". The
+owner chose up to 5 lookups a check, their own allowance, and no flag (a
+quiet cite button) for a claim that checks out but cites nothing. The
+"look it up before flagging it" block in the shared helpers holds it.
+- **What waits.** A "Needs evidence" (`questionable`) or "Missing citation"
+  (`needs_citation`) verdict is never drawn, carded or counted
+  (`LOOKUP_FIRST`, `lookupHides` in `flagShown`). The unnamed-source note
+  ("vague") is not shown either (`tipKindShown`). A false, incoherent or
+  wrong-source verdict is drawn as before.
+- **What is looked up.** Every sentence `flagShown(…, beforeLookup)` would
+  show, so a named or unnamed source's claim is looked up rather than given
+  way to its note. Up to `LOOKUP.perCheck` (5) a check, picked statistics
+  first, then a named or cited source, then a study (`lookupPicks`). One at
+  a time, after the writer's own search, at most 3 a minute
+  (`lookupWaitMs`; the server allows a caller 4). A later check picks up
+  the rest (`lookupAgain` goes round once more for a check that landed
+  mid-run). Verdicts kept from an earlier visit are looked up once
+  (`lookupKicked`).
+- **How.** `fetchSources(hash, true, { lookup: true })` in both modes: the
+  sentence as written (no `correction`), sent with `verify: true`, which the
+  server meters on `VERIFY_LIMITS`, never the writer's searches
+  (server/CLAUDE.md, "The extension's lookups"). Its signature line is a
+  test anchor, so the option is read from `arguments[2]`.
+- **What it decides** (`lookupOutcome`, `lookedUp`, kept with the verdict as
+  `lookup` and `from`, so a sentence is looked up once while it stands):
+  - **A read source backs it:** no flag. If the sentence cites nothing, its
+    sources wait folded at the panel's foot under "Sources you could cite"
+    (`couldCiteItems`, `couldCiteSectionHtml`), with the mode's own Cite in
+    doc and Copy cite. Neutral, never a finding colour; hidden when
+    Citation issues are off.
+  - **A read source says otherwise:** "False claim" (`refuted`, red), whose
+    explanation is what that source says (`LOOKUP_COPY.refuted`). It keeps
+    the check's fix, and its sources show as "Sources that disagree"
+    (`claimIsWrong`).
+  - **Nothing it read backs it:** "Unverified statistic" when it states a
+    figure (`isStatistic`), else "Unverified claim" (`unverified`, red,
+    counted under Errors and switched with Needs evidence). Its fix is
+    deleting it: the check's rewrite goes, and the card is the "study
+    Tracely can't find" card (below) in its own words, `LOOKUP_COPY`:
+    "Tracely searched for this and nothing backs it. It may be made up, so
+    we recommend deleting it…". Replace with evidence is offered only for a
+    study. A source that backs all of it but one detail still offers to
+    remove that detail.
+  - **It found sources but could open none, or the lookup failed:** no flag,
+    nothing said. A failure is tried again after `LOOKUP.retryMs` (10
+    minutes); out of lookups stops them until the page loads again.
+- **Off:** Settings → Checking → "Look for evidence automatically"
+  (`prefs.autoEvidence`) brings back the marks as they were, unsearched, and
+  `FEATURES.lookupFirst` switches the whole of it.
+
+Not covered: a signed-out writer is never looked up (`needsSignIn`), so
+their "Needs evidence" claims are simply not flagged. Not checked in a
+browser: the mock server's search always returns a source it couldn't open
+(an "unread" outcome, no flag). Tests: `server/test/ext-lookup-first.test.js`.
+
 ## "Needs evidence" is searched first
 
+Since 2.21.73 this runs only with `FEATURES.lookupFirst` off (above).
 Owner, 2026-10-13: "instead of having it say six to double check, please
 search for it first and say like look for evidence to back it up". A
 `questionable` sentence (the card and legend say "Needs evidence", the chip

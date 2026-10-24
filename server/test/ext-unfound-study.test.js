@@ -97,12 +97,13 @@ test("the card: delete it — and on Student and Pro, evidence that can take its
 
 test("wired: both panels, the hover card, the edits, and the plans", () => {
   // Panels: the block replaces the card's own fix row, so the card has one set of buttons.
-  assert.equal((SRC.match(/\} else if \(unfoundStudy\(seg\.text, st\)\) \{/g) || []).length, 2, "Docs and field panels");
-  assert.equal((SRC.match(/const unfound = unfoundStudy\(seg\.text, sourcesMap\.get\(seg\.hash\)\);/g) || []).length, 2);
+  // A looked-up claim nothing backs ("unverified", ext-lookup-first) takes the same block.
+  assert.equal((SRC.match(/\} else if \(cache\.get\(seg\.hash\)\?\.verdict === "unverified" \|\| unfoundStudy\(seg\.text, st\)\) \{/g) || []).length, 2, "Docs and field panels");
+  assert.equal((SRC.match(/const unfound = \(f\.verdict === "unverified" && !sourcesMap\.get\(seg\.hash\)\?\.partial\) \|\| unfoundStudy\(seg\.text, sourcesMap\.get\(seg\.hash\)\);/g) || []).length, 2);
   assert.equal((SRC.match(/\$\{unfound \? "" : `<div class="row">\$\{lead\}<button class="act" data-sources/g) || []).length, 2);
   // The hover card: the problem card and the sources step.
-  assert.match(SRC, /if \(unfoundStudy\(seg\.text, sourcesMap\.get\(hash\)\)\) \{\n\s+put\(dmHead\(color, UNFOUND_COPY\.head\)\);\n\s+paintUnfound\(hash, put\);/);
-  assert.match(SRC, /if \(unfoundStudy\(seg\.text, s\)\) \{\n\s+put\(dmHead\(MARK_COLORS\.questionable, UNFOUND_COPY\.head\), noteEl\(\)\);/);
+  assert.match(SRC, /if \(f\.verdict === "unverified" \|\| unfoundStudy\(seg\.text, sourcesMap\.get\(hash\)\)\) \{\n\s+put\(dmHead\(color, f\.verdict === "unverified" \? verdictLabel\(f\.verdict, seg\.text\) : UNFOUND_COPY\.head\)\);\n\s+paintUnfound\(hash, put\);/);
+  assert.match(SRC, /if \(f\?\.verdict === "unverified" \|\| unfoundStudy\(seg\.text, s\)\) \{\n\s+put\(dmHead\(MARK_COLORS\[f\?\.verdict === "unverified" \? "unverified" : "questionable"\], f\?\.verdict === "unverified" \? verdictLabel\(f\.verdict, seg\.text\) : UNFOUND_COPY\.head\), noteEl\(\)\);/);
   // Delete: the note's own one-replace delete, through runDocEdit (the preview, Undo).
   assert.match(SRC, /async function docDeleteSentence\(hash\) \{[\s\S]*?deleteEditFor\(docText, seg\.text\)[\s\S]*?return runDocEdit\(`del:\$\{hash\}`/);
   // Replace: the sentence and its reference entry, one group (citePlan), only what was found.
