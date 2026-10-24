@@ -364,6 +364,68 @@ should be blue instead of orange."
 
 Tests: `server/test/ext-no-overreach.test.js`, `ext-fix-all.test.js`.
 
+## What a verdict is about
+
+Since 2.21.75. Owner, 2026-10-24, on a twenty-sentence sheet
+(`server/test/fixtures/verdict-classes-sheet.js`): "Keep factual truth,
+source alignment, and temporal scope distinct." His Doc's saved verdicts
+showed that every red came straight from the check (nothing was looked up),
+and:
+- **True figures with the wrong citation came back "false".** "The IEA
+  reported … (UNESCO, 2023)" and WHO's estimate cited to NASA were both
+  explained by the check itself as the citation being wrong. Two more of
+  the same pattern came back "accurate".
+- **Conclusions that don't follow came back "false".** The check's
+  explanations ("associations … do not establish …") were its own
+  definition of "incoherent", which two similar sentences got.
+
+The check has no verdict for a wrong citation: `wrong_source` comes only
+from the separate citeFit call, which is off. So `classifyFinding` (shared
+helpers, "what a verdict is about") reads each verdict again against what
+the check said, with no new call:
+- **"false" whose fix changes only the citation** → `wrong_source`, amber
+  "Wrong source cited", keeping the check's explanation and fix
+  (`citationOnlyFix`).
+- **"false" on a premise-and-conclusion sentence** ("Because P, C",
+  "P, proving that C", "P; therefore C", "P, these findings show that C")
+  whose fix keeps the premise word for word and whose explanation says it
+  does not establish the conclusion → `incoherent`, "Doesn't make sense",
+  still red (`inferenceOnlyFix`). A false premise, or an explanation that
+  states a fact instead, stays "false". Words like "always" decide nothing.
+- **"accurate" with one organisation credited in the words and another in
+  the parenthetical** → `wrong_source`, with "The sentence credits …, but its
+  citation names …" and Find a source (`wrongCitation`). Organisations only
+  (an acronym, or a name with a body's word: `orgLike`), never a person.
+  One body written two ways is never a mismatch (`sameBody`: one name
+  inside the other, or initials found in order, so CDC, DOE and UNICEF
+  match their names). It reads more verbs than `orgCredited` does
+  ("identifies", "notes", "shows"…) through its `verbs` argument;
+  "Source not cited" keeps its own.
+- **A "false" whose fix changes the claim stays "false"**: a sentence can be
+  wrong and wrongly cited.
+
+A verdict is read once (`cls`, `CLASSIFY_GEN`). New findings are read as they
+arrive (`classifyInto` after the findings loop) and saved ones on the next
+read (inside each mode's `inheritVerdicts`), so a Doc already checked
+changes without being checked again. `FEATURES.verdictClasses` switches it
+off. Nothing it produces is looked up, and nothing it changes was, so model
+calls and searches are unchanged.
+
+Measured, free: across the repo's 1,854 documents (22,627 distinct
+checkable sentences, 422 with one work citation) `wrongCitation` fires only
+on the sheet and on one sentence of the owner's 2026-10-15 key: "The
+American Academy of Sleep Medicine recommends … (CDC, 2024)", which that key
+marks correct, because the CDC republishes the Academy's guidance. The card's
+words hold either way. On the four model checksets (178 sentences) the
+credited-but-other-cited and reasoning rules can touch none, and the
+citation-only rule only the Fleming sentence (cited and false, twice).
+
+Not covered: a citation that names no body in the sentence's words ("Venus
+… (OECD, 2023)") is still citeFit's to judge. A dated estimate given without
+its year (WHO's 1.28 billion is 2019's) is not flagged. A wrong citation on
+a "Needs evidence" sentence is left to its lookup. Not checked in a browser.
+Tests: `server/test/ext-verdict-classes.test.js`.
+
 ## Look it up before flagging it
 
 Since 2.21.73. Owner, 2026-10-23: "look them up before flagging them and
