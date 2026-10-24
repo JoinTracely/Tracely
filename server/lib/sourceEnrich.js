@@ -46,9 +46,9 @@
 
 export const CROSSREF_API = "https://api.crossref.org/works/";
 export const ENRICH_DEADLINE_MS = 2_500;
-const UA = "Tracely/1.0 (https://jointracely.com; mailto:hello@jointracely.com)";
+const UA = "Tracely/1.0 (https://jointracely.com; mailto:info@jointracely.com)";
 const DOI_RE = /\b(10\.\d{4,9}\/[^\s"'<>#?]+)/i;
-export const ESUMMARY_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&retmode=json&tool=tracely&email=hello@jointracely.com&id=";
+export const ESUMMARY_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&retmode=json&tool=tracely&email=info@jointracely.com&id=";
 const PMID_RE = /^https?:\/\/(?:www\.)?(?:pubmed\.ncbi\.nlm\.nih\.gov|ncbi\.nlm\.nih\.gov\/pubmed)\/(\d{1,9})(?:[/?#]|$)/i;
 
 /** The PubMed id a source's URL names, or "". */

@@ -66,6 +66,6 @@ test("PRIVACY.md names the real host, the website's host, a minimum age of 13, D
   assert.match(POLICY, /\*\*13 and older\*\*/);
   assert.doesNotMatch(POLICY, /school age/, "one age, stated one way");
   assert.match(POLICY, /## Do Not Track/);
-  assert.match(POLICY, /hello@jointracely\.com/);
+  assert.match(POLICY, /info@jointracely\.com/);
   assert.doesNotMatch(POLICY, /open an issue at\s+https:\/\/github\.com/, "privacy requests never go to a public issue");
 });

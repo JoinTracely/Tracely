@@ -465,5 +465,5 @@ test("Help: what's new, and diagnostics that carry the version, the settings and
   assert.deepEqual([d.version, d.plan, d.signedIn, d.docsEnabled, d.autoCheckSites, d.prefs.launcherSide, d.browser], ["2.21.99", "pro", true, true, 1, "left", "test-browser"]);
   assert.deepEqual(d.lastEdits, edits);
   assert.ok(!/@example|a\.example/.test(p.copied[0]), "no email address, no site names");
-  assert.match(p.$("emailUs").href, /^mailto:hello@jointracely\.com\?subject=Tracely%20problem&body=/);
+  assert.match(p.$("emailUs").href, /^mailto:info@jointracely\.com\?subject=Tracely%20problem&body=/);
 });

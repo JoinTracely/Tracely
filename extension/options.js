@@ -53,7 +53,7 @@ const ORDER_URL = "https://jointracely.com/order";
    Empty is handled honestly below rather than silently: the link becomes an
    email to support instead of pretending to be self-service. */
 const PORTAL_URL = "https://billing.stripe.com/p/login/5kQ3cv2Sy5gw4XY49P4gg00";
-const SUPPORT_EMAIL = "hello@jointracely.com";
+const SUPPORT_EMAIL = "info@jointracely.com";
 const $ = (id) => document.getElementById(id);
 
 /* The upgrade link carries the signed-in account id as `uid`, which the order
@@ -737,6 +737,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.76", "Email us (Settings → Help) now writes to info@jointracely.com, Tracely's one address."],
   ["2.21.75", "A true statistic with the wrong source in its citation is now Wrong source cited, not a contradicted fact, and so is a sentence that credits one organisation but cites another. A conclusion that doesn't follow from its evidence is Doesn't make sense."],
   ["2.21.74", "Copy diagnostics now includes a few counts from your last Doc, such as how many sentences were checked, never any of your writing. They help us keep Tracely fast and affordable."],
   ["2.21.73", "Tracely looks a claim up before it flags it. If a source backs it, it isn't flagged (its source waits under Sources you could cite); if a source says otherwise, it's a False claim; if nothing backs it, it's an Unverified claim or statistic, with Delete."],

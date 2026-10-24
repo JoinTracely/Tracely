@@ -268,5 +268,5 @@ top. A change to how your data is used is also announced in Tracely or by
 email before it takes effect.
 
 Questions, and requests to see, correct or delete what we keep about you:
-email **hello@jointracely.com**. Please don't put personal details in a
+email **info@jointracely.com**. Please don't put personal details in a
 public GitHub issue.
