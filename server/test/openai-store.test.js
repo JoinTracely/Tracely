@@ -44,3 +44,28 @@ test("a real route's call carries it too: the extension's check", async () => {
   assert.ok(sent.length >= 1);
   assert.ok(sent.every((b) => b.store === false));
 });
+
+/* What the privacy policy says about it moves with the code (the legal
+ * checklist, 2026-10-24): a policy that disagrees with what the product does
+ * is the thing that gets a business in trouble. */
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const POLICY = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "PRIVACY.md"), "utf8");
+
+test("PRIVACY.md says what the server does: no training, asks OpenAI not to store, up to 30 days of abuse logs", () => {
+  assert.match(POLICY, /every request asks OpenAI not\s+to store it/);
+  assert.match(POLICY, /up to 30 days in its\s+abuse-monitoring logs/);
+});
+
+test("PRIVACY.md names the real host, the website's host, a minimum age of 13, Do Not Track, and a private contact", () => {
+  assert.match(POLICY, /\*\*Railway\*\* — hosts our server/);
+  assert.doesNotMatch(POLICY, /\*\*Linode\*\* — hosts our server/, "the server left the Linode on 23 October 2026");
+  assert.match(POLICY, /\*\*Vercel\*\* — hosts the website/);
+  assert.match(POLICY, /\*\*13 and older\*\*/);
+  assert.doesNotMatch(POLICY, /school age/, "one age, stated one way");
+  assert.match(POLICY, /## Do Not Track/);
+  assert.match(POLICY, /hello@jointracely\.com/);
+  assert.doesNotMatch(POLICY, /open an issue at\s+https:\/\/github\.com/, "privacy requests never go to a public issue");
+});
