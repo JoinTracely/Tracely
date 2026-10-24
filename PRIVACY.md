@@ -1,8 +1,14 @@
 # Tracely Privacy Policy
 
-*Effective: 24 October 2026. This update says that a lookup carries a few
-labels about itself, never text, and that Help's diagnostics hold a few
-counts (see "Finding sources" and "On your device"). The 23 October 2026
+*Effective: 24 October 2026. This update says how long OpenAI may keep the
+text it checks (up to 30 days, in its abuse-monitoring logs, never for
+training), names who hosts our server (Railway, since 23 October 2026) and
+our website (Vercel), covers the website itself, sets the minimum age at 13,
+says how Tracely answers a browser's Do Not Track signal, adds a security
+section, and takes privacy requests by email rather than in public. Earlier
+the same day, it said that a lookup carries a few labels about itself, never
+text, and that Help's diagnostics hold a few counts (see "Finding sources"
+and "On your device"). The 23 October 2026
 version said that the extension looks up a claim before it flags it as
 needing evidence or a citation, and counts those lookups. The 22 October 2026 version said that
 the desktop app's results are kept on our server for 1 to 7 days and then
@@ -19,9 +25,9 @@ actually does.*
 
 This policy covers the **Tracely Chrome extension**, the **Tracely
 service** it talks to (`api.jointracely.com`), what that service keeps of the
-**Tracely desktop app**'s requests, and the **try-out page**
-(`api.jointracely.com/try`, shown on jointracely.com/try), all operated by
-Tracely ("we"). It is written from the code: each statement below names the part of
+**Tracely desktop app**'s requests, the **try-out page**
+(`api.jointracely.com/try`, shown on jointracely.com/try) and the **website**
+(jointracely.com), all operated by Tracely ("we"). It is written from the code: each statement below names the part of
 the product it describes.
 
 ## The short version
@@ -30,7 +36,8 @@ the product it describes.
   judged. **We do not store your text.** It is processed and discarded. The
   one exception is the desktop app's results, which can include sentences from
   your draft: they are kept for 1 to 7 days, so the same request isn't paid for
-  twice, and then deleted automatically.
+  twice, and then deleted automatically. OpenAI never uses it for training,
+  but may keep it for up to 30 days to check for abuse.
 - Google Docs is checked only after you turn Tracely on for Docs, once. Other
   sites are checked only after you turn Tracely on for that site. Until then
   nothing is read from the page.
@@ -54,8 +61,10 @@ checked is not sent again. For "Explain in depth", one sentence and the
 document context. For the flow check, the first 12,000 characters. When
 Tracely recognises a resume, its first 12,000 characters, for Resume tips. Our server
 forwards this to **OpenAI** (the model that does the judging) and returns the
-verdicts. Neither we nor, per OpenAI's API terms, OpenAI keep the text for
-training; our server holds it only for the seconds the check takes.
+verdicts. Our server holds the text only for the seconds the check takes.
+OpenAI does not use it to train its models, and every request asks OpenAI not
+to store it; OpenAI may still keep requests for up to 30 days in its
+abuse-monitoring logs, as its API terms allow.
 
 **Finding sources.** When you ask for sources (or turn on automatic sources in
 the widget), the flagged sentence, its suggested correction and up to 6,000
@@ -112,6 +121,13 @@ our server which plan was bought, the Stripe customer id and the email used to
 pay, so the plan can be attached to your account. If you buy before signing
 in, the purchase waits until an account with that email signs in.
 
+**The website.** jointracely.com loads its typeface from Google Fonts, so
+Google receives your IP address and browser details when a page loads. Signing
+in on the order page uses the same Google sign-in through Supabase as the
+extension, and buying a plan opens Stripe's checkout with your account id, so
+the purchase reaches your account. The website sets no advertising or
+analytics cookies.
+
 **Every request** to our server carries a random install id, generated once
 per browser profile, so plan limits and fair-use caps can be applied without
 an account. It identifies a browser, not a person, and is stored hashed. When
@@ -131,7 +147,7 @@ On our server:
 | Payment events from Stripe: event id, type, plan, outcome | account id | while the account exists; the payer's name, address and phone are removed before the event is stored |
 | An unclaimed purchase (plan and payer email) awaiting its account | payer email | until claimed, or until the subscription ends |
 | The desktop app's results (the claims found in a draft, its structure, critiques, suggested rewrites, grades and source lists), which can include sentences from the draft, so that the same request is not paid for twice | a hash of the request | 1 day (claims found, structure) or 7 days (the rest), then deleted automatically within the hour |
-| Standard web-server access logs (IP address, time, path) | — | rotated by the web server on its normal schedule (see below) |
+| Request logs kept by our host, Railway (IP address, time, path) | — | deleted by Railway at the end of its log-retention period |
 
 Our application logs record which route was called and whether it succeeded —
 never your text, email, tokens or IP address.
@@ -163,7 +179,9 @@ removes the rest.
 ## Who else processes your data
 
 - **OpenAI** (api.openai.com) — judges the text and runs source searches, on
-  our API key, under OpenAI's API data-usage terms.
+  our API key, under OpenAI's API data-usage terms: it does not train on the
+  text, every request asks it not to store it, and it may keep requests for up
+  to 30 days in its abuse-monitoring logs.
 - **Crossref** (api.crossref.org), **OpenAlex** (api.openalex.org) and **the
   publishers of the sources we find** — after a source search, our server
   looks up each source's DOI at Crossref and reads the source's own web page
@@ -187,10 +205,31 @@ removes the rest.
   from Google's public favicon service (www.google.com/s2/favicons), which
   receives that source's domain name — never your text or the sentence being
   cited.
-- **Linode** — hosts our server.
+- **Railway** — hosts our server (since 23 October 2026), and with it the text
+  passing through for the seconds a check takes, and the records in the table
+  above.
+- **Vercel** — hosts the website, jointracely.com, and receives the requests
+  a web host does (IP address, page, browser).
+- **Google Fonts** — serves the website's typeface (above).
 
 None of them receives more than the feature needs, and none is permitted to
 use it for anything else.
+
+## Do Not Track
+
+Tracely does not follow you across other websites, and no other company tracks
+you through the extension, the desktop app, our server or the website. So
+there is nothing for a browser's Do Not Track signal to switch off: Tracely
+works the same whether or not your browser sends it.
+
+## Security
+
+Every connection to our server and the website is encrypted (HTTPS). Card
+details are held by Stripe and never reach us, and sign-in is handled by
+Google through Supabase, so we hold no passwords. Access to our server,
+database and accounts is limited to the people who run Tracely, and keys are
+kept out of the code. If a breach exposes your personal information, we will
+tell you as the law requires.
 
 ## Your controls
 
@@ -216,13 +255,18 @@ processors above for those features, or as required by law.
 
 ## Children
 
-Tracely is for writers of school age and older, but the paid plans require a
-parent or guardian to pay if you are under 18. We do not knowingly collect
-data from children under 13.
+Tracely is for people **13 and older**. If you are under 18, you need a parent
+or guardian's permission to use it, and a parent or guardian must buy any paid
+plan. We do not knowingly collect personal information from children under 13;
+if we learn that we have, we delete it. A parent who believes their child under
+13 has used Tracely can email us at the address below.
 
 ## Changes and contact
 
 Changes to this policy are published here, with the effective date at the
-top. Questions and requests: open an issue at
-https://github.com/JoinTracely/Tracely/issues, or email the address on
-jointracely.com.
+top. A change to how your data is used is also announced in Tracely or by
+email before it takes effect.
+
+Questions, and requests to see, correct or delete what we keep about you:
+email **hello@jointracely.com**. Please don't put personal details in a
+public GitHub issue.
