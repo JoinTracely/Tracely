@@ -213,7 +213,7 @@ test("the corpora: of every cited sentence in the repo's documents, it calls one
     if (X.wrongCitation(s.text)) fires.push(s.text);
   }
   assert.ok(seen.size > 20_000, `read ${seen.size} sentences`);
-  // The owner's 2026-10-15 key marks this one correct (the CDC republishes the Academy's recommendation); the card's words hold either way.
+  // The owner's 2026-10-15 key marks this one correct (the CDC republishes the Academy's recommendation). Owner, 2026-10-24: "keep the AASM card".
   const key13 = CITATION_KEY.find((s) => s.n === 13);
   assert.deepEqual(fires, [key13.text]);
   assert.deepEqual({ ...X.wrongCitation(key13.text) }, { credit: "American Academy of Sleep Medicine", author: "CDC" });

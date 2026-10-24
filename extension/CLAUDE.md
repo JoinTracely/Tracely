@@ -415,8 +415,9 @@ Measured, free: across the repo's 1,854 documents (22,627 distinct
 checkable sentences, 422 with one work citation) `wrongCitation` fires only
 on the sheet and on one sentence of the owner's 2026-10-15 key: "The
 American Academy of Sleep Medicine recommends … (CDC, 2024)", which that key
-marks correct, because the CDC republishes the Academy's guidance. The card's
-words hold either way. On the four model checksets (178 sentences) the
+marks correct, because the CDC republishes the Academy's guidance. The owner
+kept the card there (2026-10-24: "keep the AASM card"): it asks the writer
+to name in the sentence the source they cite, which holds either way. On the four model checksets (178 sentences) the
 credited-but-other-cited and reasoning rules can touch none, and the
 citation-only rule only the Fleming sentence (cited and false, twice).
 
