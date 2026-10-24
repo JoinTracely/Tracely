@@ -63,11 +63,13 @@ export function recordAction(gate, route, { ok = true, ms = 0, at = Date.now() }
   const a = gate?.costAction;
   if (!a || !a.calls) return false;
   insert ??= db.prepare(
-    "INSERT INTO cost_actions (at, action, pool, model, calls, input, cached, cache_write, output, searches, cost_ucents, ok, ms) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    "INSERT INTO cost_actions (at, action, pool, model, calls, input, cached, cache_write, output, searches, cost_ucents, ok, ms, via) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  // `via`: which search answered a source search (server.js sets gate.costVia; lib/searchApi.js).
+  const via = ["cheap", "fallback", "openai"].includes(gate.costVia) ? gate.costVia : null;
   insert.run(at, actionOf(route, gate), String(gate.pool ?? ""), a.models.join(",").slice(0, 120), a.calls,
     Math.round(a.input), Math.round(a.cached), Math.round(a.write), Math.round(a.output), Math.round(a.searches),
-    Math.round(a.cost), ok ? 1 : 0, Math.max(0, Math.round(num(ms))));
+    Math.round(a.cost), ok ? 1 : 0, Math.max(0, Math.round(num(ms))), via);
   if (at - lastPurge > 3_600_000) {
     lastPurge = at;
     purge ??= db.prepare("DELETE FROM cost_actions WHERE at < ?");
@@ -89,7 +91,7 @@ const cents = (ucents) => Math.round(ucents / 100) / 10_000;
 export function costReport({ days = 7, recent = 50, now = Date.now() } = {}) {
   const since = now - days * DAY_MS;
   const rows = db.prepare(
-    "SELECT at, action, pool, model, calls, input, cached, cache_write, output, searches, cost_ucents, ok, ms " +
+    "SELECT at, action, pool, model, calls, input, cached, cache_write, output, searches, cost_ucents, ok, ms, via " +
     "FROM cost_actions WHERE at >= ? ORDER BY at, rowid").all(since);
   const total = rows.reduce((s, r) => s + r.cost_ucents, 0);
   const groups = new Map();
@@ -118,6 +120,8 @@ export function costReport({ days = 7, recent = 50, now = Date.now() } = {}) {
       cachedShare: (() => { const i = rs.reduce((s, r) => s + r.input, 0); return i ? Math.round((rs.reduce((s, r) => s + r.cached, 0) / i) * 1000) / 1000 : 0; })(),
       avgMs: Math.round(avg((r) => r.ms)),
       models: [...new Set(rs.flatMap((r) => String(r.model).split(",").filter(Boolean)))],
+      // A source search's answer: how many the cheaper search gave, how many fell back to OpenAI's, how many were OpenAI's alone.
+      via: rs.reduce((v, r) => (r.via ? { ...v, [r.via]: (v[r.via] ?? 0) + 1 } : v), {}),
     };
   }).sort((x, y) => y.totalCents - x.totalCents || y.count - x.count);
   const byDay = new Map();
@@ -140,7 +144,7 @@ export function costReport({ days = 7, recent = 50, now = Date.now() } = {}) {
     recent: rows.slice(-Math.max(0, recent)).reverse().map((r) => ({
       at: new Date(r.at).toISOString(), action: r.action, pool: r.pool, model: r.model, calls: r.calls,
       inputTokens: r.input, cachedTokens: r.cached, outputTokens: r.output, searches: r.searches,
-      cents: cents(r.cost_ucents), ok: Boolean(r.ok), ms: r.ms,
+      cents: cents(r.cost_ucents), ok: Boolean(r.ok), ms: r.ms, via: r.via ?? null,
     })),
   };
 }

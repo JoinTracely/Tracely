@@ -105,6 +105,18 @@ downtime, because a volume cannot be attached to two copies at once.
   for `TRACELY_ADMIN_TOKEN`, a random value of 24 characters or more that only
   the owner holds. Set it in Railway → Variables. Without it, or with a
   shorter one, `/api/admin/costs` answers 404 (`lib/costLedger.js`).
+- **The cheaper source search** (`lib/searchApi.js`): Brave Search first,
+  OpenAI's web search only when nothing Brave found backs the sentence.
+  - **To turn it on:** set `TRACELY_SEARCH_PROVIDER=brave` and
+    `BRAVE_SEARCH_API_KEY` (the Search plan's key, from Brave's API dashboard;
+    a parent owns that account and its card). Optionally set
+    `TRACELY_SEARCH_PRICE_PER_1K_USD` to the plan's price (default 5).
+  - **To turn it off:** remove `TRACELY_SEARCH_PROVIDER` (or the key). Every
+    search is then OpenAI's alone, as before.
+  - **Before turning it on:** check that PRIVACY.md names Brave (it does
+    since 2026-10-24), and that the website's privacy summary does too.
+  - **How to watch it:** the cost page's "Cheaper search answered" column,
+    and `via=` on each search's log line.
 - **Roll back:** Deployments → an earlier one → Redeploy. The model-tier rule
   under "The model tiers" applies just as it does to an `app.bak-*`.
 

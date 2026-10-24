@@ -294,6 +294,38 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
       while one runs, and what those cost.
     Each lookup's own log line carries `tags=`. Tests:
     `test/search-tally.test.js`, `test/seenClaims.test.js`.
+  - **A cheaper search first, OpenAI's as its fallback** (2026-10-24,
+    `lib/searchApi.js`, `factcheck.js` `cheapFirst`). Owner: "implement the
+    system with openai's search as a fallback". On the cost page a lookup
+    cost 1.7 to 2.7 cents, mostly OpenAI's $10-per-1,000 web_search fee and the
+    result pages it reads back.
+    - **How it works:** with `TRACELY_SEARCH_PROVIDER=brave` and its key set,
+      a source search first asks Brave ($5 per 1,000) for the sentence, its
+      citation taken out (`searchQueryFor`). It keeps up to six readable
+      results (`candidateResults`: no PDFs, videos, social posts or shops)
+      and puts them through the same complete-and-judge step any search's
+      sources get (`judgeSources`), without the detail check.
+    - **One backs it:** that is the answer. No OpenAI search runs, no
+      web_search fee is charged, and the provider's fee is
+      (`extraMicroCents`).
+    - **Nothing backs it:** OpenAI's search runs exactly as before
+      (`openaiSources`). A Brave page that says otherwise is kept beside its
+      answer. So no search ends with fewer backing sources than OpenAI's
+      alone gives.
+    - **Never asked:** a correction search, a caller with the reading off,
+      or the mock.
+    - **Billing:** a provider that failed charges nothing. When the fallback
+      fails, the cheap pass's tokens and fee ride on its error.
+    - **The reservation:** the worst case grows by one verifier pass and one
+      fee only while a provider is set (`CHEAP_PASS`).
+    - **What reaches Brave:** only the query; Brave's snippets are not kept,
+      because its terms allow only transient storage. PRIVACY.md names Brave.
+    - **Watching it:** each search's log line says `via=cheap|fallback|openai`
+      and `api=brave:1`, and the cost ledger's `via` column (migration v6)
+      gives the cost page its "Cheaper search answered" column.
+    - **Why Brave:** the comparison of 2026-10-24 is in `searchApi.js`.
+      Google-scraping resellers are left out on purpose.
+    Tests: `test/cheap-search.test.js`.
   - **What each action cost, kept** (2026-10-24, `lib/costLedger.js`). The
     lines above are counted in memory and lost on a deploy. Owner: "can we
     create a system so I can see how much api credits weve used on each look
