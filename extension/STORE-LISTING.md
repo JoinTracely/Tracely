@@ -2,7 +2,8 @@
 
 What to type into each field of the Chrome Web Store Developer Dashboard for
 Tracely's listing, `pkaihmliboboiafoodfaoflflcpipcnd`, on Merrick's
-developer account. Written 2026-10-21 for the first submission. When a field
+developer account. It is still a draft: nothing has been published from it
+(2026-10-24). Written 2026-10-21 for the first submission. When a field
 changes in the dashboard, change it here too, so the next person submitting
 starts from what is live.
 

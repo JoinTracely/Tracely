@@ -27,11 +27,18 @@ Read the root `CLAUDE.md` first. `README.md` here says what ships.
 
 ## Two listings (2026-10-21)
 
-The Web Store listing Tracely publishes to is on **Merrick's** developer
-account, id **`pkaihmliboboiafoodfaoflflcpipcnd`**, from 2.21.69. The old
-listing, `dffmoeebkkghhgcklkbmaibfhgiegmdm`, is on Sam's account and stays at
-2.21.1: its installs keep working, because they call the same server, but
-they never update. So:
+The Web Store item Tracely will publish to is on **Merrick's** developer
+account, id **`pkaihmliboboiafoodfaoflflcpipcnd`**. It is a **draft**: it was
+created on 2026-10-21 to fix the id, which the manifest `key` pins, and
+nothing has been published from it (owner, 2026-10-24: "none is published
+yet"). Builds since 2.21.69 carry its id.
+- **Publish to that item, never a new one.** A new item gets a new id, and
+  then the manifest `key`, Supabase's redirect allowlist and
+  `TRACELY_EXTENSION_ID` would all have to change with it.
+
+The old listing, `dffmoeebkkghhgcklkbmaibfhgiegmdm`, is on Sam's account and
+stays at 2.21.1: its installs keep working, because they call the same
+server, but they never update. So:
 - **The server admits both ids** (`TRACELY_EXTENSION_ID`, comma-separated),
   and Supabase's redirect allowlist has both `https://<id>.chromiumapp.org/`
   addresses. Never drop the old id while its installs are in use.
