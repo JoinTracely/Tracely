@@ -4866,7 +4866,13 @@
     const notInDbq = (t) => genre !== "dbq" || !["page", "nameonly", "vague", "uncited"].includes(t.kind);
     return [...quoteCitationTips(text, style), ...citationHygieneTips(text)].filter(notInDbq)
       .map((t) => ({ ...t, id: "tip:" + hashText(t.quote + "|" + t.kind), suggestion: "" }))
-      .filter((t) => !dismissed.has(t.id));
+      .filter((t) => !dismissed.has(t.id))
+      /* A note on a whole sentence rides on that sentence's card ("Also here",
+         tipCoversSentence), so dismissing the card dismisses the note with it.
+         Owner, 2026-10-25: a false claim whose red card had been dismissed came
+         back underlined amber, as its "Source not cited" note. A page note is
+         on the citation beside the sentence, and keeps its own Dismiss. */
+      .filter((t) => t.kind === "page" || !dismissed.has(hashText(t.quote)));
   }
   // Every note an essay or paper's panel lists, in both modes (each keeps its own memo, allTips).
   function tipsOf(text, genre, dismissed, review, style) {
