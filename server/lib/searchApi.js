@@ -29,6 +29,7 @@
  * variables, never in the tree. */
 import { searchOpenAlex, lexicalRelevance } from "./evidence.js";
 import { RELEVANCE_FLOOR_LEXICAL } from "../shared/marks.js";
+import { credibilityOf } from "../shared/sourceCredibility.js";
 
 const TIMEOUT_MS = 5_000;
 const MAX_QUERY = 350;
@@ -89,7 +90,27 @@ export async function openAlexCandidates(q, claim, { apiKey = "" } = {}) {
     .filter(({ w, rel }) => rel >= RELEVANCE_FLOOR_LEXICAL && (w.doi || w.oaUrl))
     .sort((a, b) => b.rel - a.rel)
     .slice(0, 3)
-    .map(({ w }) => ({ url: w.doi ? `https://doi.org/${w.doi}` : w.oaUrl, title: String(w.title ?? ""), snippet: "", origin: "openalex" }));
+    // Its DOI and kind travel with it, so a journal article counts as peer-reviewed (strongFirst).
+    .map(({ w }) => ({ url: w.doi ? `https://doi.org/${w.doi}` : w.oaUrl, title: String(w.title ?? ""), snippet: "", origin: "openalex", doi: w.doi ?? null, venueType: w.venueType ?? null }));
+}
+
+/* Which candidates the one pass judges (owner, 2026-10-24, on a blog that
+ * backed a sentence beside the Washington Post: "yes start with the first").
+ * The strong ones (peer-reviewed, official, reference, news of record:
+ * shared/sourceCredibility.js) go first, in the services' order. When at least
+ * ENOUGH_STRONG of them were found, the unvetted ones (an unrecognised
+ * publisher, an open encyclopedia) are left unjudged: a student is better
+ * served by one of those three backing the sentence, and if none does, OpenAI's
+ * search runs as before. With fewer strong ones, the unvetted fill the pass,
+ * so a sentence only a smaller site states is still found cheaply. Nothing
+ * shown is dropped: the extension labels and ranks whatever is returned. */
+const ENOUGH_STRONG = 3;
+export function strongFirst(results, max = 8) {
+  const list = Array.isArray(results) ? results : [];
+  const strong = list.filter((r) => credibilityOf({ url: r.url, doi: r.doi, venueType: r.venueType }).tier !== "unvetted");
+  const weak = list.filter((r) => !strong.includes(r));
+  const picked = (strong.length >= ENOUGH_STRONG ? strong : [...strong, ...weak]).slice(0, max);
+  return { picked, strong: strong.length, weak: weak.length };
 }
 
 /* The mode this server is set up for, or null for none (OpenAI's search
@@ -118,7 +139,8 @@ export function searchProvider(env = process.env) {
     async find(q, claim) {
       const [web, paper] = await Promise.allSettled([PROVIDERS.brave.search(q, key, AbortSignal.timeout(TIMEOUT_MS)), papers(q, claim)]);
       if (web.status === "rejected" && paper.status === "rejected") throw web.reason;
-      const pages = web.status === "fulfilled" ? web.value.slice(0, 5).map((r) => ({ ...r, origin: "brave" })) : [];
+      // All ten of Brave's: strongFirst picks the strong ones from anywhere in the list.
+      const pages = web.status === "fulfilled" ? web.value.map((r) => ({ ...r, origin: "brave" })) : [];
       return {
         results: [...pages, ...(paper.status === "fulfilled" ? paper.value : [])],
         // Brave is paid for when it answered; OpenAlex's searches come out of its free daily budget.
@@ -155,7 +177,7 @@ export function candidateResults(results, max = 6) {
     const key = `${u.hostname.replace(/^www\./, "")}${u.pathname.replace(/\/$/, "")}${u.search}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ url: u.href, title: String(r.title || u.href).slice(0, 200), snippet: String(r.snippet ?? "").slice(0, 300), origin: r.origin ?? null });
+    out.push({ url: u.href, title: String(r.title || u.href).slice(0, 200), snippet: String(r.snippet ?? "").slice(0, 300), origin: r.origin ?? null, doi: r.doi ?? null, venueType: r.venueType ?? null });
     if (out.length >= max) break;
   }
   return out;

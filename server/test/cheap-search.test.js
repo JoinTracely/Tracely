@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PROVIDERS, searchProvider, searchQueryFor, candidateResults, openAlexCandidates } from "../lib/searchApi.js";
+import { PROVIDERS, searchProvider, searchQueryFor, candidateResults, openAlexCandidates, strongFirst } from "../lib/searchApi.js";
 import { cheapFirst, findSources } from "../lib/factcheck.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -104,13 +104,14 @@ test("OpenAlex: only papers about the sentence, the best three, each by its DOI,
   assert.match(seen[0].init.headers["User-Agent"], /mailto:info@jointracely\.com/);
 });
 
-test("Brave and OpenAlex at once: Brave's five first; Brave paid for only when it answered; it throws only when neither did", async () => {
+test("Brave and OpenAlex at once: all of Brave's, then OpenAlex's; Brave paid for only when it answered; it throws only when neither did", async () => {
   const brave = searchProvider({ TRACELY_SEARCH_PROVIDER: "brave", BRAVE_SEARCH_API_KEY: "bk" });
   const pages = Array.from({ length: 7 }, (_, i) => ({ url: `https://p${i}.org/`, title: `P${i}`, description: "" }));
-  const paper = [work("10.1/sleep", "Sleep of high school students in the United States", "high school students sleep fewer than 8 hours on school nights")];
+  const paper = [work("10.1/sleep", "Sleep of high school students in the United States", "high school students sleep fewer than 8 hours on school nights", { type: "article" })];
   fakeWeb({ brave: pages, openalex: paper });
   let r = await brave.find(searchQueryFor(CLAIM), CLAIM);
-  assert.deepEqual(r.results.map((x) => x.origin), ["brave", "brave", "brave", "brave", "brave", "openalex"]);
+  assert.deepEqual(r.results.map((x) => x.origin), ["brave", "brave", "brave", "brave", "brave", "brave", "brave", "openalex"]);
+  assert.deepEqual([r.results[7].doi, r.results[7].venueType], ["10.1/sleep", "journal"], "a paper keeps its DOI and kind, so it counts as peer-reviewed");
   assert.equal(r.microCents, 500_000);
   assert.equal(r.searches, 2);
   fakeWeb({ braveStatus: 500, openalex: paper });
@@ -120,7 +121,7 @@ test("Brave and OpenAlex at once: Brave's five first; Brave paid for only when i
   assert.equal(r.searches, 1);
   fakeWeb({ brave: pages, openalexStatus: 429 });
   r = await brave.find(searchQueryFor(CLAIM), CLAIM);
-  assert.equal(r.results.length, 5);
+  assert.equal(r.results.length, 7);
   assert.equal(r.microCents, 500_000);
   fakeWeb({ braveStatus: 500, openalexStatus: 429 });
   await assert.rejects(brave.find(searchQueryFor(CLAIM), CLAIM));
@@ -167,7 +168,43 @@ test("a cheap answer says which service found its backing source, for the log li
   assert.equal(r.cheapOrigin, "openalex");
 });
 
-test("up to eight are judged in the one pass: Brave's five and OpenAlex's three", async () => {
+test("strong sources first: with three or more, the unvetted are left unjudged; with fewer, they fill the pass", () => {
+  const blog = (i) => ({ url: `https://blog${i}.example/post`, title: `Blog ${i}`, origin: "brave" });
+  const cdc = { url: "https://www.cdc.gov/sleep", title: "CDC", origin: "brave" };
+  const wapo = { url: "https://www.washingtonpost.com/x", title: "WaPo", origin: "brave" };
+  const wiki = { url: "https://en.wikipedia.org/wiki/Sleep", title: "Wikipedia", origin: "brave" };
+  const paper = { url: "https://doi.org/10.1/a", title: "Paper", origin: "openalex", doi: "10.1/a", venueType: "journal" };
+  const book = { url: "https://doi.org/10.1/b", title: "Book", origin: "openalex", doi: "10.1/b", venueType: "book" };
+  // Brave's order puts two blogs first; three strong ones are further down.
+  let r = strongFirst([blog(1), blog(2), cdc, wiki, wapo, paper, book]);
+  assert.deepEqual(r.picked.map((x) => x.title), ["CDC", "WaPo", "Paper"], "only the strong, in the services' order");
+  assert.deepEqual([r.strong, r.weak], [3, 4]);
+  // Only two strong: the rest fill the pass, the strong still first.
+  r = strongFirst([blog(1), cdc, wiki, paper, blog(2)]);
+  assert.deepEqual(r.picked.map((x) => x.title), ["CDC", "Paper", "Blog 1", "Wikipedia", "Blog 2"]);
+  // None strong: the pass is the unvetted, up to the cap.
+  r = strongFirst(Array.from({ length: 12 }, (_, i) => blog(i)));
+  assert.equal(r.picked.length, 8);
+  assert.equal(strongFirst([]).picked.length, 0);
+});
+
+test("in the pass: three strong candidates mean the blogs are never judged", async () => {
+  const list = [
+    { url: "https://blog1.example/a", title: "Blog", origin: "brave" },
+    { url: "https://www.nih.gov/a", title: "NIH", origin: "brave" },
+    { url: "https://www.reuters.com/b", title: "Reuters", origin: "brave" },
+    { url: "https://blog2.example/c", title: "Blog 2", origin: "brave" },
+    { url: "https://doi.org/10.1/d", title: "Paper", origin: "openalex", doi: "10.1/d", venueType: "journal" },
+  ];
+  let judged = null;
+  const r = await cheapFirst({ claim: CLAIM, model: "gpt-5.6-luna", provider: provider(list),
+    judge: async (merged) => { judged = merged.map((s) => s.url); return { sources: merged.map((s) => read(s.url, s.url.includes("nih") ? "supports" : "context")), usage: null, stages: {} }; },
+    full: async () => { throw new Error("not reached"); } });
+  assert.deepEqual(judged, ["https://www.nih.gov/a", "https://www.reuters.com/b", "https://doi.org/10.1/d"]);
+  assert.deepEqual(r.cheapPicked, { strong: 3, weak: 2, judged: 3 });
+});
+
+test("up to eight are judged in the one pass", async () => {
   const many = Array.from({ length: 10 }, (_, i) => ({ url: `https://s${i}.org/`, title: `S${i}` }));
   let judged = 0;
   await cheapFirst({ claim: CLAIM, model: "gpt-5.6-luna", provider: provider(many),
@@ -254,7 +291,7 @@ test("findSources: a correction search, or a server with no provider, never take
 
 test("wiring: the route charges the provider's fee and no web_search fee for a cheap answer, logs which search answered, and keeps it out of the response", () => {
   const src = readFileSync(path.join(HERE, "..", "server.js"), "utf8");
-  assert.match(src, /via, cheapOrigin, provider: searchApi, providerSearches, providerMicroCents, \.\.\.result \} = answer;/, "out of the frozen response");
+  assert.match(src, /via, cheapOrigin, cheapPicked, provider: searchApi, providerSearches, providerMicroCents, \.\.\.result \} = answer;/, "out of the frozen response");
   assert.match(src, /webSearchCalls: via === "cheap" \? 0 : searchFee\(webSearchCalls\), extraMicroCents: providerMicroCents \?\? 0/);
   assert.match(src, /gate\.costVia = via \?\? "openai";/);
   assert.match(src, / via=\$\{via \?\? "openai"\}/);

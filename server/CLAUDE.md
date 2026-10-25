@@ -309,10 +309,20 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
       - **Which papers:** only ones `lexicalRelevance` puts above the local
         evidence search's floor, the best three, each by its DOI so the
         reader finds the abstract (`openAlexCandidates`).
-      - **What is judged:** up to eight readable results (Brave's five
-        first; `candidateResults` drops PDFs, videos, social posts and
-        shops), through the same complete-and-judge step any search's
-        sources get (`judgeSources`), without the detail check.
+      - **What is judged:** up to eight readable results (`candidateResults`
+        drops PDFs, videos, social posts and shops), through the same
+        complete-and-judge step any search's sources get (`judgeSources`),
+        without the detail check.
+      - **Strong sources first** (owner, 2026-10-24, after a blog backed a
+        sentence beside the Washington Post; `strongFirst`). Peer-reviewed,
+        official, reference and news-of-record candidates go first, from
+        anywhere in Brave's ten (`shared/sourceCredibility.js`, a port of
+        the desktop's, held to it and the extension's by
+        `test/source-credibility.test.js`). With three or more strong ones,
+        the unvetted are left unjudged; with fewer, they fill the pass. The
+        log line's `picked=3:3s2w` counts them: judged, then strong (s) and
+        unvetted (w) candidates. Nothing shown is
+        dropped: the extension still labels and ranks.
       - **Billing:** Brave is charged only when it answered. OpenAlex comes
         out of its free daily budget, and `find` throws only when no service
         answered.
