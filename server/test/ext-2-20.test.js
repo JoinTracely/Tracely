@@ -335,6 +335,12 @@ function widgetContext(tier) {
       claimIsWrong: (v) => v === "false" || v === "incoherent",
       citableHere: (s) => s?.stance !== "refutes",
       DISAGREE_COPY: { find: "See what sources say", title: "Sources that disagree with your sentence", fix: "", noFix: "" },
+      // Its way out: Delete claim and a better claim (ext-better-claim.test.js).
+      replaceMap: new Map(),
+      betterHtml: () => "",
+      betterActionsHtml: () => "",
+      wireBetter: () => {},
+      findBetterClaim: () => {},
       FEATURES: { evidenceHints: false }, // the evidence section is tested in ext-evidence.test.js
       showEvidence: false,
       lastTextChangeAt: 0,

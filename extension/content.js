@@ -3741,13 +3741,104 @@
      (`bare`), and only a study can be replaced with evidence (`study`). */
   function unfoundHtml(rep, actionsHtml, locked, { bare = false, study = true } = {}) {
     const body = locked ? UNFOUND_COPY.body : UNFOUND_COPY.bodyPaid;
-    const repHtml = rep?.text ? `<div class="fix"><div class="fix-label">${esc(UNFOUND_COPY.label)}</div><div class="fix-text">${esc(rep.text)}</div><div class="src-meta">${esc(rep.src.title || rep.src.url)} · ${sourceMetaHtml(rep.src)}</div></div>`
-      : rep?.loading ? `<div class="loading">${esc(UNFOUND_COPY.finding)}</div>`
-        : rep?.none ? `<div class="loading">${esc(UNFOUND_COPY.none)}</div>`
-          : rep?.failed ? `<div class="loading">${esc(rep.failed)}</div>` : "";
     const head = bare ? "" : `<div class="trim-head">${esc(UNFOUND_COPY.head)}</div><div class="src-snip">${esc(body)}</div>`;
-    return `<div class="unfound">${head}${repHtml}<div class="row">${actionsHtml}</div>`
+    return `<div class="unfound">${head}${repBlockHtml(rep, UNFOUND_COPY)}<div class="row">${actionsHtml}</div>`
       + `${locked && study ? `<div class="ev-locked"><span>${esc(UNFOUND_COPY.locked)}</span><button class="act" data-rec-plans="1">${esc(RECOMMEND_COPY.seePlans)}</button></div>` : ""}</div>`;
+  }
+  // The replacement found, or the search for it, in a copy's own words (UNFOUND_COPY, BETTER_COPY).
+  function repBlockHtml(rep, copy) {
+    return rep?.text ? `<div class="fix"><div class="fix-label">${esc(copy.label)}</div><div class="fix-text">${esc(rep.text)}</div><div class="src-meta">${esc(rep.src.title || rep.src.url)} · ${sourceMetaHtml(rep.src)}</div></div>`
+      : rep?.loading ? `<div class="loading">${esc(copy.finding)}</div>`
+        : rep?.none ? `<div class="loading">${esc(copy.none)}</div>`
+          : rep?.failed ? `<div class="loading">${esc(rep.failed)}</div>` : "";
+  }
+  /* A wrong claim's way out. Owner, 2026-10-25: "when tracely finds sources
+     to refute, thats all it does. It should say delete claim/evidence or
+     something. And pro/student plans should have a button that says replace
+     with better claim, and that should happen. For free plan, have that be a
+     shiny orange/red button that when they click on it there is animation
+     that said upgrade plan." Under a sentence the check found false or
+     incoherent, or a lookup found refuted (claimIsWrong):
+     - Delete claim, on every plan: the unfound study's one-replace delete
+       (Docs; a field can't delete a sentence).
+     - Replace with better claim, on Student and Pro: what a source says on
+       the point, quoted and cited (evidenceReplacement), so no model writes
+       it. A refuting source the sentence already has is used as it is, with
+       no search; otherwise one search (betterClaimQuery), which spends one
+       of the plan's source searches, as Replace with evidence does.
+     - On Free, the same button in the brand orange running into red, with a
+       shine passing over it. Pressed, "Upgrade your plan" rises in under the
+       row, with the plans (betterUpsellHtml). */
+  const BETTER_COPY = {
+    delete: "Delete claim",
+    replace: "Replace with better claim",
+    finding: "Finding a better claim…",
+    label: "Replace with",
+    none: "Tracely couldn't find a source to build a better claim from. Delete the claim, or rewrite it to match what sources say.",
+    upHead: "Upgrade your plan",
+    upBody: "Student and Pro replace a wrong claim with what a source says, quoted and cited.",
+    up: { pro: "Get Pro", student: "Get Student" },
+    later: "Not now",
+  };
+  // An argument's premise, which the check let stand: "Although P, these findings demonstrate that C" gives "P."
+  const CONCEDES = /^(?:although|though|even though|while|whereas|granted that|despite the fact that)\s+/i;
+  function premiseOf(text) {
+    for (const re of INFERENCE) {
+      const m = String(text ?? "").trim().match(re);
+      const p = m ? m.groups.p.replace(CONCEDES, "").replace(/[\s,;:]+$/, "").trim() : "";
+      if (p.split(/\s+/).length >= 4) return `${p.charAt(0).toUpperCase()}${p.slice(1)}.`;
+    }
+    return null;
+  }
+  /* What a better claim is searched as, and which side a source must take
+     to make one: an incoherent sentence's premise, backed; else the check's
+     own fix, backed; else the sentence as written, and a source that says
+     otherwise. */
+  function betterClaimQuery(text, f) {
+    const premise = f?.verdict === "incoherent" ? premiseOf(text) : null;
+    if (premise) return { claim: premise, want: "supports" };
+    const fix = String(f?.revision ?? "").trim();
+    if (fix && plainWords(fix) !== plainWords(text)) return { claim: fix, want: "supports" };
+    return { claim: String(text ?? "").trim(), want: "refutes" };
+  }
+  /* The first read source on that side, most citable first, that makes a
+     one-sentence quote (pickReplacement). A source that refuted the sentence
+     backs the quote of itself that takes its place, so it carries that
+     stance into the new sentence's sources (docReplaceWithEvidence). */
+  function betterPick(list, want, style) {
+    const side = backingSources(list, want === "refutes" ? "false" : "questionable").list.filter((s) => s.stance === want);
+    const pick = pickReplacement(side, style);
+    return pick && want === "refutes" ? { ...pick, src: { ...pick.src, stance: "supports" } } : pick;
+  }
+  const SPARK_PATH = "M8 1.5l1.5 4.2 4.2 1.5-4.2 1.5L8 12.9 6.5 8.7 2.3 7.2l4.2-1.5z";
+  const SPARK_SVG = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${SPARK_PATH}" fill="currentColor"/></svg>`;
+  // The button: Student and Pro search; Free's shines and opens the plans.
+  function betterBtnHtml(hash) {
+    return canRecommend()
+      ? `<button class="act" data-better-find="${esc(hash)}">${esc(BETTER_COPY.replace)}</button>`
+      : `<button class="act shine" data-better-upsell="${esc(hash)}">${SPARK_SVG}${esc(BETTER_COPY.replace)}</button>`;
+  }
+  // Free pressed it: hash → whether its card has risen in yet (the panel re-renders often; only a new one animates).
+  const betterUpsell = new Map();
+  function betterUpsellHtml(hash) {
+    if (!betterUpsell.has(hash)) return "";
+    const enter = betterUpsell.get(hash) ? "" : " enter";
+    betterUpsell.set(hash, true);
+    const ups = upgradesFor().map((p, i) => `<button class="act${i === 0 ? " primary" : ""}" data-upgrade="${p}">${esc(BETTER_COPY.up[p])}</button>`).join("");
+    return `<div class="upsell${enter}" role="status"><div class="upsell-head">${SPARK_SVG}${esc(BETTER_COPY.upHead)}</div><div class="upsell-body">${esc(BETTER_COPY.upBody)}</div>`
+      + `<div class="row">${ups}<button class="act" data-better-later="${esc(hash)}">${esc(BETTER_COPY.later)}</button></div></div>`;
+  }
+  // Under a wrong claim's card: the better claim (or the search for it), the mode's buttons, then Free's upgrade card.
+  function betterHtml(hash, rep, actionsHtml) {
+    return `<div class="better">${repBlockHtml(rep, BETTER_COPY)}${actionsHtml ? `<div class="row">${actionsHtml}</div>` : ""}${betterUpsellHtml(hash)}</div>`;
+  }
+  // Its buttons, in either mode's panel: find (the mode's findBetterClaim), or open and close Free's card.
+  function wireBetter(root, find, rerender) {
+    for (const btn of root.querySelectorAll("[data-better-find]")) btn.addEventListener("click", () => find(btn.dataset.betterFind));
+    for (const btn of root.querySelectorAll("[data-better-upsell]")) {
+      btn.addEventListener("click", () => { if (!betterUpsell.has(btn.dataset.betterUpsell)) betterUpsell.set(btn.dataset.betterUpsell, false); rerender(); });
+    }
+    for (const btn of root.querySelectorAll("[data-better-later]")) btn.addEventListener("click", () => { betterUpsell.delete(btn.dataset.betterLater); rerender(); });
   }
   /* What a source shows under its title: the receipt — "The source says:
      “…”" and where it was read — when the server read it, else the
@@ -5944,6 +6035,31 @@
     button.act.primary { background: var(--w-primary); border-color: var(--w-primary); color: var(--w-on-primary); }
     button.act.primary:hover:not([disabled]) { background: var(--w-primary-hover); border-color: var(--w-primary-hover); color: var(--w-on-primary); }
     button.act[disabled] { opacity: .5; cursor: default; }
+    /* A wrong claim's way out (BETTER_COPY). Free's "Replace with better
+       claim" is the brand orange running into red, with a shine passing over
+       it (owner, 2026-10-25: "a shiny orange/red button"). Pressed, "Upgrade
+       your plan" springs in under the row and a light sweeps across it.
+       Reduced motion: no shine, and the card just appears. */
+    .better { display: flex; flex-direction: column; gap: 8px; }
+    button.act.shine { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 6px; border-color: transparent; color: #fff; background: linear-gradient(135deg, #ff5900, #d93636); box-shadow: 0 2px 10px rgba(255, 89, 0, .35); }
+    button.act.shine:hover:not([disabled]) { border-color: transparent; color: #fff; background: linear-gradient(135deg, #ff5900, #d93636); filter: brightness(1.07); box-shadow: 0 3px 14px rgba(217, 54, 54, .45); }
+    button.act.shine svg, .upsell-head svg { width: 13px; height: 13px; flex-shrink: 0; }
+    button.act.shine::after { content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 45%; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .55), transparent); transform: skewX(-18deg); animation: tracely-shine 2.8s ease-in-out infinite; pointer-events: none; }
+    @keyframes tracely-shine { 0%, 55% { left: -60%; } 100% { left: 130%; } }
+    .upsell { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; border: 1px solid rgba(255, 89, 0, .35); background: linear-gradient(135deg, rgba(255, 89, 0, .1), rgba(217, 54, 54, .1)); }
+    .upsell-head { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: #ff5900; }
+    .upsell-head svg { color: #d93636; }
+    .upsell-body { font-size: 12.5px; line-height: 1.4; color: var(--body); }
+    .upsell.enter { animation: tracely-upsell-in 420ms cubic-bezier(0.2, 1.3, 0.4, 1) both; transform-origin: 50% 0; }
+    .upsell.enter::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .6) 50%, transparent 70%); transform: translateX(-100%); animation: tracely-upsell-sweep 900ms 200ms ease-out both; pointer-events: none; }
+    .upsell.enter .upsell-head svg { animation: tracely-spark 700ms 150ms ease-out both; }
+    @keyframes tracely-upsell-in { from { opacity: 0; transform: translateY(-6px) scale(0.94); } to { opacity: 1; transform: none; } }
+    @keyframes tracely-upsell-sweep { to { transform: translateX(100%); } }
+    @keyframes tracely-spark { from { transform: scale(0) rotate(-90deg); } 60% { transform: scale(1.35) rotate(15deg); } to { transform: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      button.act.shine::after, .upsell.enter::after { display: none; }
+      .upsell.enter, .upsell.enter .upsell-head svg { animation: none; }
+    }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
     .sources { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
@@ -7873,6 +7989,69 @@
       }
       return b;
     }
+    /* Free's "Replace with better claim" (BETTER_COPY): the brand orange
+       running into red, a spark, and a shine passing over it; no shine under
+       reduced motion. */
+    function dmSpark() {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      for (const [k, v] of [["viewBox", "0 0 16 16"], ["width", "13"], ["height", "13"], ["aria-hidden", "true"]]) svg.setAttribute(k, v);
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", SPARK_PATH);
+      path.setAttribute("fill", "currentColor");
+      svg.appendChild(path);
+      return svg;
+    }
+    function dmShine(label) {
+      const b = el("button", {
+        position: "relative", overflow: "hidden", display: "inline-flex", alignItems: "center", gap: "6px",
+        padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap", cursor: "pointer",
+        fontFamily: "inherit", lineHeight: "normal", color: "#fff", border: "1px solid transparent",
+        background: `linear-gradient(135deg, ${DM.orange}, ${DM.red})`, boxShadow: "0 2px 10px rgba(255, 89, 0, .35)",
+      });
+      b.type = "button";
+      const sheen = el("span", { position: "absolute", top: "0", bottom: "0", left: "-60%", width: "45%", pointerEvents: "none", transform: "skewX(-18deg)", background: "linear-gradient(100deg, transparent, rgba(255, 255, 255, .55), transparent)" });
+      if (!reducedMotion() && typeof sheen.animate === "function") sheen.animate([{ left: "-60%" }, { left: "-60%", offset: 0.55 }, { left: "130%" }], { duration: 2800, iterations: Infinity, easing: "ease-in-out" });
+      else sheen.style.display = "none";
+      b.append(dmSpark(), document.createTextNode(label), sheen);
+      b.addEventListener("mouseenter", () => { b.style.filter = "brightness(1.07)"; });
+      b.addEventListener("mouseleave", () => { b.style.filter = ""; });
+      return b;
+    }
+    /* "Upgrade your plan", risen in under the hover card's row once Free
+       pressed it: it springs in and a light sweeps across it, the first time
+       only (betterUpsell), and just appears under reduced motion. */
+    function dmUpsell(hash) {
+      const enter = !betterUpsell.get(hash);
+      betterUpsell.set(hash, true);
+      const box = el("div", {
+        position: "relative", overflow: "hidden", width: "100%", boxSizing: "border-box", borderRadius: "10px", padding: "12px",
+        display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto",
+        border: "1px solid rgba(255, 89, 0, .35)", background: "linear-gradient(135deg, rgba(255, 89, 0, .1), rgba(217, 54, 54, .1))",
+      });
+      const head = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "14px", fontWeight: "700", color: DM.orange });
+      const spark = dmSpark();
+      spark.style.color = DM.red;
+      head.append(spark, document.createTextNode(BETTER_COPY.upHead));
+      box.append(head, dmBody(BETTER_COPY.upBody));
+      const row = el("div", { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" });
+      upgradesFor().forEach((p, i) => {
+        const b = dmBtn(BETTER_COPY.up[p], i === 0);
+        b.addEventListener("click", () => openOrderPage());
+        row.appendChild(b);
+      });
+      const later = dmBtn(BETTER_COPY.later, false);
+      later.addEventListener("click", () => { betterUpsell.delete(hash); paintPop(); });
+      row.appendChild(later);
+      box.appendChild(row);
+      if (enter && !reducedMotion() && typeof box.animate === "function") {
+        box.animate([{ opacity: 0, transform: "translateY(-6px) scale(0.94)" }, { opacity: 1, transform: "none" }], { duration: 420, easing: "cubic-bezier(0.2, 1.3, 0.4, 1)" });
+        spark.animate([{ transform: "scale(0) rotate(-90deg)" }, { transform: "scale(1.35) rotate(15deg)", offset: 0.6 }, { transform: "none" }], { duration: 700, delay: 150, easing: "ease-out", fill: "backwards" });
+        const sweep = el("span", { position: "absolute", inset: "0", pointerEvents: "none", background: "linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .6) 50%, transparent 70%)", transform: "translateX(-100%)" });
+        box.appendChild(sweep);
+        sweep.animate([{ transform: "translateX(-100%)" }, { transform: "translateX(100%)" }], { duration: 900, delay: 200, easing: "ease-out", fill: "forwards" });
+      }
+      return box;
+    }
     /* A hint-styled control for what the app puts beside a button row (the
        "Usually 3–5 seconds" hint): the one place "Explain in depth" lives. */
     function dmLink(label) {
@@ -8646,6 +8825,8 @@
         render();
       });
       put(dmActions(action, dis));
+      // A wrong claim: Delete claim, and a better claim (BETTER_COPY).
+      if (claimIsWrong(f.verdict)) paintBetter(hash, put);
       if (citedHere) {
         const more = dmBtn(hasRevision ? CITED_COPY.find : POP_COPY.findSource, false, { wide: true });
         if (!hasRevision) more.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
@@ -8798,6 +8979,47 @@
         put(dmHint(UNFOUND_COPY.locked), dmActions(plans));
       }
       if (!canEditDoc()) put(dmHint(editBlockReason()));
+    }
+    /* A wrong claim's way out in the hover card (BETTER_COPY): the better
+       claim once found, then its buttons, two to a row — Replace in doc and
+       Delete claim, or Delete claim and Replace with better claim. Free's
+       shines and opens "Upgrade your plan" here (dmUpsell). */
+    function paintBetter(hash, put) {
+      const rep = replaceMap.get(hash);
+      if (rep?.text) put(dmBlock(BETTER_COPY.label, dmQuote(rep.text)), dmHint(rep.src.title || rep.src.url));
+      else if (rep?.loading) put(dmHint(BETTER_COPY.finding));
+      else if (rep?.none) put(dmHint(BETTER_COPY.none));
+      else if (rep?.failed) put(dmHint(rep.failed));
+      const btns = [];
+      if (rep?.text && canEditDoc()) {
+        const v = editView(`rep:${hash}`, UNFOUND_COPY.apply);
+        const b = dmBtn(v.label, true, { disabled: v.disabled });
+        b.addEventListener("click", () => { popPinned = true; docReplaceWithEvidence(hash); });
+        btns.push(b);
+      } else if (rep?.text) {
+        const b = dmBtn(UNFOUND_COPY.copy, true);
+        b.addEventListener("click", () => { copyText(rep.text); b.textContent = POP_COPY.copied; });
+        btns.push(b);
+      }
+      if (canEditDoc()) {
+        const v = editView(`del:${hash}`, BETTER_COPY.delete);
+        const b = dmBtn(v.label, false, { disabled: v.disabled });
+        b.addEventListener("click", () => { popPinned = true; docDeleteSentence(hash); });
+        btns.push(b);
+      }
+      if (!rep?.text && !rep?.loading && !rep?.none) btns.push(betterBtn(hash));
+      put(dmActions(...btns));
+      if (betterUpsell.has(hash)) put(dmUpsell(hash));
+    }
+    function betterBtn(hash, onPress = () => {}) {
+      if (canRecommend()) {
+        const b = dmBtn(BETTER_COPY.replace, false);
+        b.addEventListener("click", () => { onPress(); findBetterClaim(hash); });
+        return b;
+      }
+      const b = dmShine(BETTER_COPY.replace);
+      b.addEventListener("click", () => { if (!betterUpsell.has(hash)) betterUpsell.set(hash, false); onPress(); paintPop(); });
+      return b;
     }
     function paintSources(hash, seg, f, st, put, opts = {}) {
       const s = sourcesMap.get(hash);
@@ -9010,8 +9232,14 @@
         primary = dmBtn(POP_COPY.copyCite, true, { disabled: !src });
         primary.addEventListener("click", () => { if (!src) return; try { navigator.clipboard.writeText(formatCitation(src, style).ref); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
       }
-      const preview = dmBtn(st.preview ? POP_COPY.hidePreview : POP_COPY.preview, false, { disabled: !citable });
-      preview.addEventListener("click", () => setStep(stepKey, { preview: !st.preview }));
+      // A source that says otherwise has no citation to preview: its place is the better claim, shown on the problem card.
+      let preview;
+      if (src && !citable && disagree && stepKey === hash) {
+        preview = betterBtn(hash, () => setStep(hash, { step: "problem" }));
+      } else {
+        preview = dmBtn(st.preview ? POP_COPY.hidePreview : POP_COPY.preview, false, { disabled: !citable });
+        preview.addEventListener("click", () => setStep(stepKey, { preview: !st.preview }));
+      }
       put(dmActions(primary, preview));
       const again = dmBtn(POP_COPY.searchAgain, false, { wide: true });
       again.addEventListener("click", searchAgain);
@@ -10139,10 +10367,10 @@
       }
     }
     let undoShown = false; // set while render() builds cards: did a card carry the Undo?
-    function editBtnHtml(key, idle, attrs) {
+    function editBtnHtml(key, idle, attrs, primary = true) {
       const v = editView(key, idle);
       if (v.undo) undoShown = true;
-      return `<button class="act primary" ${attrs}${v.disabled ? " disabled" : ""}>${esc(v.label)}</button>`
+      return `<button class="act${primary ? " primary" : ""}" ${attrs}${v.disabled ? " disabled" : ""}>${esc(v.label)}</button>`
         + (v.undo ? `<button class="act" data-doc-undo="1"${docBusy ? " disabled" : ""}>Undo</button>` : "");
     }
     function editNoteHtml(key) {
@@ -10513,6 +10741,48 @@
       if (rep?.text) return editBtnHtml(`rep:${hash}`, UNFOUND_COPY.apply, `data-unfound-apply="${hash}"`) + `<button class="act" data-unfound-del="${hash}"${docBusy ? " disabled" : ""}>${esc(UNFOUND_COPY.delete)}</button>`;
       const find = paid && !rep ? `<button class="act" data-unfound-find="${hash}">${esc(UNFOUND_COPY.replace)}</button>` : "";
       return del + find;
+    }
+    /* A wrong claim's better claim (BETTER_COPY), Student and Pro: what a
+       refuting source the sentence already has says, with no search; else
+       one search (betterClaimQuery). It goes in like a study's evidence
+       (docReplaceWithEvidence, the data-unfound-* buttons). */
+    async function findBetterClaim(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const f = cache.get(hash);
+      if (!seg || !claimIsWrong(f?.verdict) || !canRecommend() || replaceMap.get(hash)?.loading) return false;
+      const style = settings.citationStyle || "mla";
+      const st = sourcesMap.get(hash);
+      const q = betterClaimQuery(seg.text, f);
+      const have = betterPick(st?.list, "refutes", style);
+      // The sentence's own search already asked about it as written: asking again would pay for the same answer.
+      if (have || (q.want === "refutes" && st && !st.loading)) {
+        replaceMap.set(hash, have ?? { none: true });
+        render();
+        renderPopSources(hash);
+        return true;
+      }
+      replaceMap.set(hash, { loading: true });
+      render();
+      renderPopSources(hash);
+      try {
+        // 3,000, as findReplacement: a premise or a fix is not the sentence, so the server keeps the context's head.
+        const data = await searchSources({ claim: q.claim, context: searchContext(docText, seg, 3000), model: CHECK_MODEL }, () => {});
+        replaceMap.set(hash, betterPick(data.sources, q.want, style) ?? { none: true });
+      } catch (err) {
+        replaceMap.set(hash, { failed: searchFailureNote(err) });
+      }
+      render();
+      renderPopSources(hash);
+      return true;
+    }
+    // Under a wrong claim's card (panel): Delete claim, and the better claim — found, being found, or the button that finds it.
+    function betterActionsHtml(hash, lead) {
+      const rep = replaceMap.get(hash);
+      const find = rep?.text || rep?.loading || rep?.none ? "" : betterBtnHtml(hash);
+      if (!canEditDoc()) return rep?.text ? `<button class="act primary" data-unfound-copy="${hash}">${esc(UNFOUND_COPY.copy)}</button>` : find;
+      if (rep?.text) return editBtnHtml(`rep:${hash}`, UNFOUND_COPY.apply, `data-unfound-apply="${hash}"`) + `<button class="act" data-unfound-del="${hash}"${docBusy ? " disabled" : ""}>${esc(BETTER_COPY.delete)}</button>`;
+      // The card's own fix, when it has one, stays the button it asks for first.
+      return editBtnHtml(`del:${hash}`, BETTER_COPY.delete, `data-unfound-del="${hash}"`, !lead) + find;
     }
     async function docAddPage(tipId, page) {
       const tip = anyTipById(tipId);
@@ -12929,6 +13199,7 @@
             </div>` : ""}
             ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">${claimIsWrong(f.verdict) ? DISAGREE_COPY.find : "Find a source"}</button>${copyIcon}</div>`}
             ${f.revision ? editNoteHtml(`fix:${seg.hash}`) : ""}
+            ${claimIsWrong(f.verdict) && !unfound ? betterHtml(seg.hash, replaceMap.get(seg.hash), betterActionsHtml(seg.hash, lead)) + editNoteHtml(`del:${seg.hash}`) + editNoteHtml(`rep:${seg.hash}`) : ""}
             ${sourcesHtml}
             ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>` : ""}
           </div>` };
@@ -13059,6 +13330,8 @@
         for (const btn of shadow.querySelectorAll("[data-unfound-copy]")) {
           btn.addEventListener("click", () => { const r = replaceMap.get(btn.dataset.unfoundCopy); if (r?.text) { copyText(r.text); btn.textContent = "Copied ✓"; } });
         }
+        // A wrong claim: its better claim (Student, Pro), or Free's upgrade card. Delete and Replace are the buttons above.
+        wireBetter(shadow, findBetterClaim, render);
         for (const btn of shadow.querySelectorAll("[data-tip-list]")) btn.addEventListener("click", () => docAddWorksCited(btn.dataset.tipList));
         for (const btn of shadow.querySelectorAll("[data-tip-rewrite]")) btn.addEventListener("click", () => docRewriteTip(btn.dataset.tipRewrite));
         for (const input of shadow.querySelectorAll("[data-page-input]")) {
@@ -13908,6 +14181,33 @@
       render();
       return true;
     }
+    // A wrong claim's better claim: as Docs mode's findBetterClaim, on the field's text.
+    async function findBetterClaim(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const f = cache.get(hash);
+      if (!seg || !claimIsWrong(f?.verdict) || !canRecommend() || replaceMap.get(hash)?.loading) return false;
+      const style = settings.citationStyle || "mla";
+      const st = sourcesMap.get(hash);
+      const q = betterClaimQuery(seg.text, f);
+      const have = betterPick(st?.list, "refutes", style);
+      if (have || (q.want === "refutes" && st && !st.loading)) { replaceMap.set(hash, have ?? { none: true }); render(); return true; }
+      replaceMap.set(hash, { loading: true });
+      render();
+      try {
+        const data = await searchSources({ claim: q.claim, context: searchContext(fieldText, seg, 3000), model: CHECK_MODEL }, () => {});
+        replaceMap.set(hash, betterPick(data.sources, q.want, style) ?? { none: true });
+      } catch (err) {
+        replaceMap.set(hash, { failed: searchFailureNote(err) });
+      }
+      render();
+      return true;
+    }
+    // Its buttons under the card: a field can't delete a sentence, so Replace in field or Copy once found.
+    function betterActionsHtml(hash) {
+      const rep = replaceMap.get(hash);
+      if (rep?.text) return `<button class="act primary" data-unfound-apply="${hash}">${fieldFixed.has(hash) ? "Replaced ✓" : esc(UNFOUND_COPY.applyField)}</button><button class="act" data-unfound-copy="${hash}">${esc(UNFOUND_COPY.copy)}</button>`;
+      return rep?.loading || rep?.none ? "" : betterBtnHtml(hash);
+    }
     // Signed in from a card: the searches the writer asked for run now.
     async function signInThenSearch() {
       if (!(await signInFromCard())) return;
@@ -14490,6 +14790,7 @@
               <div class="fix-text">${esc(f.revision)}</div>
             </div>` : ""}
             ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">${claimIsWrong(f.verdict) ? DISAGREE_COPY.find : "Find a source"}</button>${copyIcon}</div>`}
+            ${claimIsWrong(f.verdict) && !unfound ? betterHtml(seg.hash, replaceMap.get(seg.hash), betterActionsHtml(seg.hash)) : ""}
             ${sourcesHtml}
             ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>` : ""}
           </div>` };
@@ -14631,6 +14932,8 @@
         for (const btn of shadow.querySelectorAll("[data-unfound-copy]")) {
           btn.addEventListener("click", () => { const r = replaceMap.get(btn.dataset.unfoundCopy); if (r?.text) { navigator.clipboard?.writeText(r.text).catch(() => {}); btn.textContent = "Copied ✓"; } });
         }
+        // A wrong claim: its better claim (Student, Pro), or Free's upgrade card.
+        wireBetter(shadow, findBetterClaim, render);
         for (const btn of shadow.querySelectorAll("[data-copy-src]")) {
           btn.addEventListener("click", () => {
             const st = sourcesMap.get(btn.dataset.copySrc);
