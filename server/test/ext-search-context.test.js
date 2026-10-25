@@ -89,5 +89,5 @@ test("a segment with no place known sends the head, as before; the study search 
 
 test("every source search builds its context with searchContext, none from the document's head", () => {
   assert.equal((SRC.match(/context: (?:docText|fieldText)\.slice\(0, 6000\)/g) ?? []).length, 0);
-  assert.equal((SRC.match(/context: searchContext\((?:docText|fieldText), seg(?:, 3000)?\)/g) ?? []).length, 4, "Docs and field, each with Find a source and Replace with evidence");
+  assert.equal((SRC.match(/context: searchContext\((?:docText|fieldText), seg(?:, 3000)?\)/g) ?? []).length, 6, "Docs and field, each with Find a source, Replace with evidence and Replace with better claim");
 });

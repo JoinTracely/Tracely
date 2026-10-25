@@ -567,6 +567,58 @@ Not seen in a browser: the mock server's search always returns a source it
 couldn't open, so it never comes back empty. Tests:
 `server/test/ext-unfound-study.test.js`.
 
+## A wrong claim's way out
+
+Since 2.21.77. Owner, 2026-10-25: "when tracely finds sources to refute,
+thats all it does. It should say delete claim/evidence or something. And
+pro/student plans should have a button that says replace with better claim,
+and that should happen. For free plan, have that be a shiny orange/red button
+that when they click on it there is animation that said upgrade plan." His
+example was sentence 20 of the verdict sheet ("Although artificial
+intelligence can improve efficiency in certain educational tasks, these
+findings demonstrate that replacing all classroom teachers …"): "Doesn't make
+sense", with no fix of its own.
+
+Every card whose claim is wrong (`claimIsWrong`: false, incoherent, refuted),
+unless it is the unfound study's card, has a second row (`BETTER_COPY`): in
+both panels under the card's own row, and in the Docs hover card's problem
+card (`paintBetter`).
+- **Delete claim, on every plan.** It is the unfound study's one-replace
+  delete (`docDeleteSentence`, key `del:<hash>`, the preview and Undo). It is
+  the ink button only when the card has no fix; otherwise Apply fix stays the
+  first. A field can't delete a sentence, so a field card has none.
+- **Replace with better claim, on Student and Pro** (`canRecommend`). No model
+  writes it: it is what a source says on the point, quoted with who said it
+  (`evidenceReplacement`, as Replace with evidence). `findBetterClaim`, in
+  each mode:
+  - **A refuting source the card already has,** read and with a
+    one-sentence quote, is used as it is, with no search (`betterPick`). Its
+    quote then backs the new sentence, so it carries `supports` there.
+  - **Otherwise one search** (`betterClaimQuery`): an incoherent sentence's
+    premise (`premiseOf`, from classifyFinding's `INFERENCE`, a concession's
+    "Although" taken off), backed; else the check's own fix, backed; else the
+    sentence as written, and a source that says otherwise. It spends one of
+    the plan's source searches, never a lookup's. When the card's own search
+    already asked about the sentence as written, nothing is searched again.
+  - It goes in like a study's evidence: Replace in doc (`citePlan` with
+    `swapped`, one Undo), Replace in field, or Copy. Nothing found says so and
+    points to Delete claim.
+- **On Free** the same button is the brand orange running into red, with a
+  spark and a shine passing over it (`button.act.shine`, `dmShine`). Pressed,
+  "Upgrade your plan" springs in under the row with a light sweeping across
+  it, the first time only (`betterUpsell`, `betterUpsellHtml`, `dmUpsell`),
+  with Get Pro, Get Student (`openOrderPage`) and Not now. Reduced motion:
+  no shine, and the card just appears. The red is the owner's ask; elsewhere
+  colour still means a finding.
+- **The hover card's sources step:** a refuting source's second button is
+  Replace with better claim, which goes back to the problem card, where the
+  answer shows. It used to be a Preview that could never open.
+
+Checked in the browser pane on a page that runs the real WIDGET_CSS and the
+real card markup, Free and Pro, light and dark: the shine and the card's
+spring run. Not checked: the hover card, and real Docs. Tests:
+`server/test/ext-better-claim.test.js`.
+
 ## "Find a source" always does something
 
 Owner, 2026-10-13: "find a source action button doesnt work properly".
