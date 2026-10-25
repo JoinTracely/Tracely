@@ -105,16 +105,21 @@ downtime, because a volume cannot be attached to two copies at once.
   for `TRACELY_ADMIN_TOKEN`, a random value of 24 characters or more that only
   the owner holds. Set it in Railway → Variables. Without it, or with a
   shorter one, `/api/admin/costs` answers 404 (`lib/costLedger.js`).
-- **The cheaper source search** (`lib/searchApi.js`): Brave Search first,
-  OpenAI's web search only when nothing Brave found backs the sentence.
-  - **To turn it on:** set `TRACELY_SEARCH_PROVIDER=brave` and
-    `BRAVE_SEARCH_API_KEY` (the Search plan's key, from Brave's API dashboard;
-    a parent owns that account and its card). Optionally set
+- **The cheaper source search** (`lib/searchApi.js`): cheaper searches first,
+  OpenAI's web search only when nothing they found backs the sentence.
+  `TRACELY_SEARCH_PROVIDER` picks the mode:
+  - **`openalex`:** OpenAlex's scholarly papers alone. Free, with no account
+    needed: about 100 searches a day with no key, 1,000 with a free
+    `OPENALEX_API_KEY` (openalex.org). Past that it fails quietly, and
+    OpenAI's search runs.
+  - **`brave`:** Brave's web results and OpenAlex's papers, together. It
+    needs `BRAVE_SEARCH_API_KEY` (the Search plan's key, from Brave's API
+    dashboard; a parent owns that account and its card). Optionally set
     `TRACELY_SEARCH_PRICE_PER_1K_USD` to the plan's price (default 5).
-  - **To turn it off:** remove `TRACELY_SEARCH_PROVIDER` (or the key). Every
-    search is then OpenAI's alone, as before.
-  - **Before turning it on:** check that PRIVACY.md names Brave (it does
-    since 2026-10-24), and that the website's privacy summary does too.
+  - **To turn it off:** remove `TRACELY_SEARCH_PROVIDER`. Every search is
+    then OpenAI's alone, as before.
+  - **Before turning it on:** check that PRIVACY.md and the website's privacy
+    summary name OpenAlex's search and Brave (since 2026-10-24).
   - **How to watch it:** the cost page's "Cheaper search answered" column,
     and `via=` on each search's log line.
 - **Roll back:** Deployments → an earlier one → Redeploy. The model-tier rule

@@ -227,8 +227,8 @@ function looksOutsideIndex(text, nowYear) {
 
 // ── providers ──────────────────────────────────────────────────────────
 
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(GUARDS.providerTimeoutMs) });
+async function fetchJson(url, headers = HEADERS) {
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(GUARDS.providerTimeoutMs) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -243,8 +243,12 @@ function invertAbstract(idx) {
   return text ? text.slice(0, 2000) : null;
 }
 
-async function searchOpenAlex(q) {
-  const data = await fetchJson(`https://api.openalex.org/works?search=${encodeURIComponent(q)}&per-page=6`);
+/* Also the hosted source search's free candidates (lib/searchApi.js), which
+ * passes its own identifying header and, when set, OPENALEX_API_KEY: a search
+ * draws $0.001 of OpenAlex's daily budget, $0.10 a day with no key and $1
+ * with a free one. */
+export async function searchOpenAlex(q, { headers = HEADERS, apiKey = "" } = {}) {
+  const data = await fetchJson(`https://api.openalex.org/works?search=${encodeURIComponent(q)}&per-page=6${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ""}`, headers);
   return (data.results ?? []).map((w) => ({
     doi: normalizeDoi(w.doi),
     title: w.display_name ?? w.title ?? "",

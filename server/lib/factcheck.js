@@ -598,24 +598,30 @@ const urlKey = (u) => String(u ?? "").trim().replace(/^https?:\/\/(www\.)?/i, ""
  * The provider's fee rides on the answer (`providerMicroCents`, charged by the
  * route with the tokens); a provider that failed charged nothing. When the
  * fallback fails, the cheap pass's tokens and fee ride on its error. */
+// Brave's five and OpenAlex's three, read and judged in one pass.
+const CHEAP_MAX = 8;
 export async function cheapFirst({ claim, model, provider, judge, full, tell = () => {} }) {
   const started = performance.now();
-  let results = null; // null: the provider failed, and charged nothing
+  let found = null; // null: no service answered, and nothing was charged
   try {
-    results = candidateResults(await provider.search(searchQueryFor(claim)));
+    found = await provider.find(searchQueryFor(claim), claim);
   } catch {
-    results = null;
+    found = null;
   }
-  const charged = results === null ? 0 : provider.microCentsPerQuery;
-  const fee = { provider: provider.name, providerSearches: results === null ? 0 : 1, providerMicroCents: charged };
+  const results = found ? candidateResults(found.results, CHEAP_MAX) : null;
+  const charged = Math.max(0, Number(found?.microCents) || 0);
+  const fee = { provider: provider.name, providerSearches: found?.searches ?? 0, providerMicroCents: charged };
   let judged = null;
   if (results?.length) {
     // No snippet of the provider's is kept (Brave's terms allow only transient storage): a source's words are the page's own, from the receipts.
-    const merged = mergeSources(results.map((r) => ({ title: r.title, url: r.url, publisher: hostOf(r.url), snippet: "", stance: "context" })));
+    const merged = mergeSources(results.map((r) => ({ title: r.title, url: r.url, publisher: hostOf(r.url), snippet: "", stance: "context" })), new Date(), CHEAP_MAX);
     tell({ type: "found", sources: merged.map((s) => ({ title: String(s.title ?? ""), url: String(s.url ?? ""), publisher: String(s.publisher ?? "") })) });
     judged = await judge(merged);
-    if (judged.sources.some(backs)) {
-      return { ...judged, model, webSearchCalls: 0, webSearchActions: {}, via: "cheap", ...fee,
+    const backing = judged.sources.find(backs);
+    if (backing) {
+      // Which service found it (brave, openalex), for the log line: how much each is worth.
+      const origin = results.find((r) => urlKey(r.url) === urlKey(backing.url))?.origin ?? null;
+      return { ...judged, model, webSearchCalls: 0, webSearchActions: {}, via: "cheap", cheapOrigin: origin, ...fee,
         stages: { cheap: Math.round(performance.now() - started), ...judged.stages } };
     }
   }
@@ -739,10 +745,10 @@ async function completeSources(list, { now = new Date(), fetchImpl = globalThis.
   return { enriched: enriched + filled, dropped, retracted: retracted.length };
 }
 
-/* De-duplicated by URL, at most six, each with the five fields every client
+/* De-duplicated by URL, at most six (eight for the cheaper searches' pass, cheapFirst), each with the five fields every client
  * has always read — then whatever citation fields survive validation. The
  * mock runs through here too, so TRACELY_MOCK answers in the real shape. */
-function mergeSources(list, now = new Date()) {
+function mergeSources(list, now = new Date(), max = 6) {
   const seen = new Set();
   const merged = [];
   for (const s of list) {
@@ -757,7 +763,7 @@ function mergeSources(list, now = new Date()) {
       stance: ["supports", "refutes", "context"].includes(s.stance) ? s.stance : "context",
     };
     merged.push({ ...source, ...citeFields(s, { publisher: source.publisher, title: source.title, now }) });
-    if (merged.length >= 6) break;
+    if (merged.length >= max) break;
   }
   return merged;
 }
