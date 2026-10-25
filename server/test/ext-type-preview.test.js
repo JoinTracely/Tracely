@@ -439,7 +439,8 @@ function recordingContext(log) {
     restore() { Object.assign(this, stack.pop() ?? {}); },
     clearRect() { log.length = 0; },
     fillRect(x, y, w, h) { log.push({ op: "rect", fill: this.fillStyle, x, y, w, h, shadow: this.shadowBlur }); },
-    fillText(text, x, y) { log.push({ op: "text", fill: this.fillStyle, font: this.font, text, x, y }); },
+    // maxWidth: a squeezed paragraph's words, drawn narrower than they measure (tpParagraph's squeeze).
+    fillText(text, x, y, maxWidth) { log.push({ op: "text", fill: this.fillStyle, font: this.font, text, x, y, ...(maxWidth === undefined ? {} : { maxWidth }) }); },
   };
 }
 const CHAR_W = 8; // "16px Georgia": 8px a character at 100% zoom
@@ -570,7 +571,7 @@ function loadPreview({ reduced = true, lines = [], harness = null, docText = "",
     const boxes = [{ left: x - 1, top: y - 1, right: x + 15, bottom: y + 21 }];
     if (c.children[2].style.opacity !== "0") boxes.push({ left: x + 13, top: y + 19, right: x + 73, bottom: y + 37 });
     const words = svg.filter((n) => n.isConnected).map((n) => n.getBoundingClientRect());
-    const txt = drawn().filter((d) => d.op === "text" && d.text.trim()).map((d) => ({ left: d.x, top: d.y - 14, right: d.x + d.text.trimEnd().length * CHAR_W * zoom, bottom: d.y + 4 }));
+    const txt = drawn().filter((d) => d.op === "text" && d.text.trim()).map((d) => ({ left: d.x, top: d.y - 14, right: d.x + d.text.trimEnd().length * (d.maxWidth === undefined ? CHAR_W * zoom : d.maxWidth / d.text.length), bottom: d.y + 4 }));
     return [...words, ...txt].some((r) => boxes.some((b) => b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top));
   };
   return { w, doc, svg, addLine, fire, pump, settle, find, findAll, layer, bubble, byAttr, px, outside, clickOutside, pressBubble, winListeners, drawn, covers, now: () => clock };
@@ -634,44 +635,41 @@ test("inline: the new words are typed IN the line, in the document's font, and t
   const texts = d.filter((x) => x.op === "text");
   // The strike ends after "short" (x = 100 + 14·8 = 212); a small gap (0.6 of a space), then the new words.
   const startX = 212 + 0.6 * CHAR_W;
-  assert.deepEqual(texts[0], { op: "text", fill: "#1c1c1c", font: "16.000px Georgia", text: "of average height", x: startX, y: 130 + 13.8 },
+  // At full width the re-flow needs a fifth line, over "Next paragraph."; 7.5% narrower it ends on
+  // the paragraph's own last line (owner, 2026-10-25: "a white box that covers up text").
+  const W = CHAR_W * 0.925;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const { maxWidth, ...first } = texts[0];
+  assert.deepEqual(first, { op: "text", fill: "#1c1c1c", font: "16.000px Georgia", text: "of average height", x: startX, y: 130 + 13.8 },
     "same font and size as the run; baseline = (box − (ascent + descent)) / 2 + ascent");
-  assert.deepEqual(texts.map((x) => [x.text, Math.round(x.x * 10) / 10, x.y - 13.8]), [
-    ["of average height", 216.8, 130], [", standing ", 352.8, 130],
-    ["well under five feet tall. Pizza is ", 100, 160],
-    ["delicious and everyone agrees on that ", 100, 190],
-    ["point here.", 100, 220], // one line more than the paragraph had: over what is below, on white
+  assert.equal(r1(maxWidth), r1(17 * W), "drawn into the narrower width it was laid out in");
+  assert.deepEqual(texts.map((x) => [x.text, r1(x.x), x.y - 13.8]), [
+    ["of average height", 216.8, 130], [", standing ", r1(startX + 17 * W), 130],
+    ["well under five feet tall. Pizza is delicious ", 100, 160],
+    ["and everyone agrees on that point here.", 100, 190], // the paragraph's own last line
   ]);
+  assert.ok(texts.every((x) => r1(x.maxWidth) === r1(x.text.length * W)), "every line of it, kept words too");
   assert.equal(texts[1].fill, "#000", "the kept words in the page's ink");
   // The bitmap is the layer's own size, not innerWidth's: a squeezed canvas puts every x a little off.
   assert.deepEqual([t.byAttr("data-tracely-type-flow").width, t.byAttr("data-tracely-type-flow").height], [1265, 800]);
-  // Page white over every original run after the change — and a band under the overflow line.
+  // Page white over every original run after the change, and nothing at all over "Next paragraph." (230):
+  // no line past the paragraph, no sheet lifted over the page, no shadow.
   const white = d.filter((x) => x.op === "rect" && x.fill === "#fff");
   for (const top of [130, 160, 190]) assert.ok(white.some((r) => r.y <= top && r.y + r.h >= top + 18), `masked at ${top}`);
-  assert.ok(white.some((r) => r.y <= 208 && r.y + r.h >= 238 && r.x <= 100), "the overflow line's own white band");
+  assert.ok(d.every((x) => (x.op === "rect" ? x.y + x.h <= 230 : x.y < 230)), "nothing drawn over the next paragraph");
+  assert.equal(d.filter((x) => x.shadow).length, 0, "no sheet");
   // Owner, 2026-10-13: "please highlight what tracely writes before I accept" — Tracely's orange, not the faint ink wash.
   assert.ok(d.some((x) => x.op === "rect" && x.fill === "rgba(249,115,22,0.24)" && x.x === startX), "the inserted words are highlighted");
   assert.ok(!d.some((x) => x.op === "rect" && x.fill === "rgba(28,28,28,0.07)" && x.x === startX), "not the struck words' ink wash");
   // The text caret at the end of what was typed; the cursor parked beside where it began.
-  assert.deepEqual(at(t.byAttr("data-tracely-type-caret")), [startX + 17 * CHAR_W, 130]);
-  // Past the paragraph, the overflow line is a sheet lifted over the page: opaque, a shadow under it,
-  // from the paragraph's last line (bottom 208) down past the overflow line (238) — and snapped past the
-  // Docs line it touches ("Next paragraph.", 230–248) + 2, so that line is under it whole, not cut in half.
-  const sheet = d.find((r) => r.op === "rect" && r.shadow);
-  assert.deepEqual([sheet.fill, sheet.shadow, sheet.x, sheet.y, sheet.w, sheet.h], ["#fff", 8, 94, 209, 348, 248 + 2 - 209]);
-  assert.equal(d.filter((r) => r.shadow).length, 1, "only the sheet casts a shadow");
-  for (const n of t.svg) {
-    const r = n.getBoundingClientRect();
-    const touches = r.top < sheet.y + sheet.h && r.bottom > sheet.y;
-    const whole = r.top >= sheet.y && r.bottom <= sheet.y + sheet.h;
-    assert.ok(!touches || whole, `no Docs line partly covered: "${n.getAttribute("aria-label")}" (${r.top}–${r.bottom})`);
-  }
+  assert.deepEqual(at(t.byAttr("data-tracely-type-caret")), [Math.round((startX + 17 * W) * 100) / 100, 130]);
   // The card in the right margin — the column's right edge (436) + 16 — level with the first changed line.
   const bar = t.bubble();
   assert.deepEqual([t.px(bar.style.left), t.px(bar.style.top)], [436 + 16, 130]);
   assert.deepEqual([bar.style.background, bar.style.opacity], ["#fff", "1"], "opaque: nothing shows through it");
   // Typed in: the cursor parks after the end of the line the new words end on, beside the card, on no word.
-  assert.deepEqual(at(cursorOf(t)), [startX + 27 * CHAR_W + 2, 131]);
+  // That line, squeezed, ends at 416.6, inside the original run under it (420): after that.
+  assert.deepEqual(at(cursorOf(t)), [420 + 2, 131]);
   assert.equal(cursorOf(t).children[2].style.opacity, "0", "its name would sit on the card: hidden");
   assert.equal(t.covers(), false);
   assert.match(bar.textContent, /Only you can see this until you accept/);
@@ -692,29 +690,34 @@ test("inline: at another zoom the font is scaled by the run's drawn width over i
   await p;
 });
 
-test("the overflow sheet never cuts a Docs line in half — it grows past every line it touches, one after another", async () => {
-  // Two lines below, staggered so covering the first reaches into the second.
-  const lines = [...PARA_LINES.slice(0, 4), { text: "Next paragraph.", top: 225 }, { text: "And one more line.", top: 244 }, { text: "Far below.", top: 300 }];
-  const t = loadPreview({ lines, docText: PARA_DOC });
-  // Tracely's own underline under the second line (just below its text box) goes under with it.
-  t.w.setBars([{ hash: "x", size: 18, el: Object.assign(t.doc.body.appendChild(new FakeEl(t.doc, "div")), { rect: { left: 100, top: 263, width: 120, height: 2 } }) }]);
-  const p = t.w.showTypePreview("fix:a", fixJob());
-  const sheet = t.drawn().find((r) => r.op === "rect" && r.shadow);
-  assert.equal(sheet.y + sheet.h, 263 + 2 + 2, "past the second line it touched and its underline, + 2");
-  for (const n of t.svg) {
-    const r = n.getBoundingClientRect();
-    const touches = r.top < sheet.y + sheet.h && r.bottom > sheet.y;
-    assert.ok(!touches || (r.top >= sheet.y && r.bottom <= sheet.y + sheet.h), `"${n.getAttribute("aria-label")}" partly covered`);
-  }
-  t.fire("keydown", { key: "Escape" });
-  await p;
+test("too long for its lines even 15% narrower: struck in place, the new words typed in the card beside it — nothing drawn over the page", async () => {
+  // Owner, 2026-10-25: "when I apply a revision it creates a white box that covers up text". This fix
+  // needs about two lines more than the paragraph has, which no squeeze up to 15% recovers.
+  const long = "Napoleon was of a perfectly ordinary height for a grown man living in France in his era, standing well under five feet tall.";
+  const t = loadPreview({ lines: PARA_LINES, docText: PARA_DOC });
+  const p = t.w.showTypePreview("fix:a", { steps: [{ action: "replace", find: SENTENCE, replacement: long, hint: { occurrence: 0, occurrences: 1 } }] });
+  assert.equal(t.layer().getAttribute("data-tracely-type-mode"), "aside");
+  assert.equal(t.byAttr("data-tracely-type-flow"), null, "no canvas: nothing is drawn over the document");
+  // The old words struck where they are: "famously short", the start of the paragraph's second line.
+  const strike = t.byAttr("data-tracely-type-strike");
+  assert.deepEqual([t.px(strike.style.left), t.px(strike.style.top), t.px(strike.style.width)], [100, 130, 14 * CHAR_W]);
+  assert.equal(t.byAttr("data-tracely-type-caret").style.display, "none", "no caret in the line: nothing is typed there");
+  // The new words in the card, in the right margin level with the change: the card shows them, opaque.
+  const bar = t.bubble();
+  assert.deepEqual([t.px(bar.style.left), t.px(bar.style.top)], [436 + 16, 130]);
+  assert.equal(t.byAttr("data-tracely-type-typed").textContent, "of a perfectly ordinary height for a grown man living in France in his era");
+  assert.equal(t.byAttr("data-tracely-type-typed").parentNode.style.clip, undefined, "shown, not kept for screen readers only");
+  assert.match(bar.textContent, /Only you can see this until you accept/);
+  assert.equal(t.covers(), false, "the cursor parks off every word");
+  t.fire("keydown", { key: "Enter" });
+  assert.equal(await p, true);
 });
 
 test("the card falls back under the paragraph only when the right margin is too narrow — and stays opaque", async () => {
   const t = loadPreview({ lines: PARA_LINES, docText: PARA_DOC, width: 700 });
   const p = t.w.showTypePreview("fix:a", fixJob());
   const bar = t.bubble();
-  assert.deepEqual([t.px(bar.style.left), t.px(bar.style.top)], [100, 220 + 18 + 8], "436 + 16 + 260 > 700 − 8: under the re-flowed last line");
+  assert.deepEqual([t.px(bar.style.left), t.px(bar.style.top)], [100, 190 + 18 + 8], "436 + 16 + 260 > 700 − 8: under the paragraph's last line, where the re-flow ends too");
   assert.deepEqual([bar.style.background, bar.style.opacity], ["#fff", "1"]);
   assert.equal(t.covers(), false);
   t.fire("keydown", { key: "Escape" });
