@@ -299,12 +299,26 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
     system with openai's search as a fallback". On the cost page a lookup
     cost 1.7 to 2.7 cents, mostly OpenAI's $10-per-1,000 web_search fee and the
     result pages it reads back.
-    - **How it works:** with `TRACELY_SEARCH_PROVIDER=brave` and its key set,
-      a source search first asks Brave ($5 per 1,000) for the sentence, its
-      citation taken out (`searchQueryFor`). It keeps up to six readable
-      results (`candidateResults`: no PDFs, videos, social posts or shops)
-      and puts them through the same complete-and-judge step any search's
-      sources get (`judgeSources`), without the detail check.
+    - **How it works:** `TRACELY_SEARCH_PROVIDER` picks a mode.
+      - **`openalex`:** OpenAlex's papers alone: free, about 100 searches a
+        day with no key, 1,000 with `OPENALEX_API_KEY`.
+      - **`brave`:** with `BRAVE_SEARCH_API_KEY`, Brave's web results ($5 per
+        1,000) and OpenAlex's papers, asked at once (`find`).
+      - **What is searched:** the sentence, with its citation taken out
+        (`searchQueryFor`).
+      - **Which papers:** only ones `lexicalRelevance` puts above the local
+        evidence search's floor, the best three, each by its DOI so the
+        reader finds the abstract (`openAlexCandidates`).
+      - **What is judged:** up to eight readable results (Brave's five
+        first; `candidateResults` drops PDFs, videos, social posts and
+        shops), through the same complete-and-judge step any search's
+        sources get (`judgeSources`), without the detail check.
+      - **Billing:** Brave is charged only when it answered. OpenAlex comes
+        out of its free daily budget, and `find` throws only when no service
+        answered.
+      - **Left out on purpose:** Semantic Scholar (non-commercial data
+        licenses) and Google Scholar scrapers (Google's terms; blocked on
+        cloud servers).
     - **One backs it:** that is the answer. No OpenAI search runs, no
       web_search fee is charged, and the provider's fee is
       (`extraMicroCents`).
@@ -320,8 +334,9 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
       fee only while a provider is set (`CHEAP_PASS`).
     - **What reaches Brave:** only the query; Brave's snippets are not kept,
       because its terms allow only transient storage. PRIVACY.md names Brave.
-    - **Watching it:** each search's log line says `via=cheap|fallback|openai`
-      and `api=brave:1`, and the cost ledger's `via` column (migration v6)
+    - **Watching it:** each search's log line says `via=cheap|fallback|openai`,
+      `api=brave+openalex:2` (how many services answered) and, for a cheap
+      answer, `from=brave|openalex`. The cost ledger's `via` column (migration v6)
       gives the cost page its "Cheaper search answered" column.
     - **Why Brave:** the comparison of 2026-10-24 is in `searchApi.js`.
       Google-scraping resellers are left out on purpose.

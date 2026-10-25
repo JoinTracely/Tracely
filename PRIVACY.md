@@ -6,9 +6,10 @@ training), names who hosts our server (Railway, since 23 October 2026) and
 our website (Vercel), covers the website itself, sets the minimum age at 13,
 says how Tracely answers a browser's Do Not Track signal, adds a security
 section, and takes privacy requests by email rather than in public. Later the
-same day it added Brave Search, which may be asked first when Tracely looks
-for sources: it receives the sentence being looked up, never the document
-(see "Finding sources" and "Who else processes your data"). Earlier
+same day it added OpenAlex's search and Brave Search, which may be asked
+first when Tracely looks for sources: they receive the sentence being looked
+up, never the document (see "Finding sources" and "Who else processes your
+data"). Earlier
 the same day, it said that a lookup carries a few labels about itself, never
 text, and that Help's diagnostics hold a few counts (see "Finding sources"
 and "On your device"). The 23 October 2026
@@ -73,10 +74,11 @@ abuse-monitoring logs, as its API terms allow.
 the widget), the flagged sentence, its suggested correction and up to 6,000
 characters of surrounding text are sent to our server and to OpenAI, whose
 web-search tool may run searches derived from that sentence. When our server
-has it turned on, it first searches **Brave Search** for the sentence: Brave
+has it turned on, it first searches for the sentence in **OpenAlex** (a free
+index of scholarly papers) and, if it is set up, **Brave Search**: each
 receives that one sentence, with its citation taken out, as a search query,
 and never the document, the text around it or anything about you. OpenAI's
-search runs only when nothing Brave finds backs the sentence. Tracely also
+search runs only when nothing they find backs the sentence. Tracely also
 looks up a claim the check would mark as needing evidence or a citation
 before it flags it (up to 5 a check), sending the same, without the
 suggested correction. With each such lookup it also sends a few labels,
@@ -199,15 +201,17 @@ removes the rest.
   offering it (that check is made by OpenAI, above), and whether the work has
   been retracted. A PubMed source is looked up the same way at NCBI
   (eutils.ncbi.nlm.nih.gov). They receive that source's DOI, PubMed id or
-  address, never your text or the sentence being cited. When you click "Find the cited work",
+  address, never your text or the sentence being cited, except OpenAlex's
+  search when our server has it turned on (below). When you click "Find the cited work",
   our server sends that citation's words (author, title words, year), or the
   matching entry from your reference list, to Crossref and Open Library
   (openlibrary.org) to look the work up.
-- **Brave Search** (api.search.brave.com), when our server has it turned on,
-  for finding sources: it receives the sentence being looked up, with its
-  citation taken out, as a search query, and never the document, the text
-  around it or anything about you. We keep none of what it returns except the
-  links our server then reads.
+- **OpenAlex's search** (api.openalex.org) and **Brave Search**
+  (api.search.brave.com), when our server has them turned on, for finding
+  sources: each receives the sentence being looked up, with its citation
+  taken out, as a search query, and never the document, the text around it or
+  anything about you. We keep none of what they return except the links our
+  server then reads.
 - **Supabase** — sign-in and account records (email, account id, plan).
 - **Stripe** — payments; we receive plan, customer id and payer email, never
   card details.
