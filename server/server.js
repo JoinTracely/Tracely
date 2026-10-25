@@ -1814,7 +1814,7 @@ const server = http.createServer(async (req, res) => {
       // receipt (verified, readFrom, quote: additive optional fields,
       // lib/sourceVerify.js), and those do reach the client.
       // `via`, `provider`, `providerSearches`, `providerMicroCents`: which search answered (factcheck.js cheapFirst) and what the cheaper one charged. Log and ledger only.
-      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, pages, via, cheapOrigin, provider: searchApi, providerSearches, providerMicroCents, ...result } = answer;
+      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, pages, via, cheapOrigin, cheapPicked, provider: searchApi, providerSearches, providerMicroCents, ...result } = answer;
       // For the log line only: what the tool billed and what the server filled
       // in afterwards — the two numbers that say what a search costs and
       // whether the citation fields are coming from pages or from us.
@@ -1830,7 +1830,7 @@ const server = http.createServer(async (req, res) => {
       const r = Object.entries(reads ?? {}).map(([k, v]) => `${k}:${v}`).join(",") || "none";
       // Pages fetched, and read: completing and the receipts share one fetch (Codex review S2).
       const p = `fetched:${pages?.fetched ?? 0},reads:${pages?.reads ?? 0}`;
-      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} verify=${verify ? 1 : 0}${gate.searchTally.tags ? ` tags=${Object.values(gate.searchTally.tags).join(",")}` : ""} via=${via ?? "openai"}${searchApi ? ` api=${searchApi}:${providerSearches ?? 0}` : ""}${cheapOrigin ? ` from=${cheapOrigin}` : ""} ms=${Date.now() - started} stages=${t} reads=${r} pages=${p}`);
+      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} verify=${verify ? 1 : 0}${gate.searchTally.tags ? ` tags=${Object.values(gate.searchTally.tags).join(",")}` : ""} via=${via ?? "openai"}${searchApi ? ` api=${searchApi}:${providerSearches ?? 0}` : ""}${cheapPicked ? ` picked=${cheapPicked.judged}:${cheapPicked.strong}s${cheapPicked.weak}w` : ""}${cheapOrigin ? ` from=${cheapOrigin}` : ""} ms=${Date.now() - started} stages=${t} reads=${r} pages=${p}`);
       const backed = result.sources.some((s) => s?.stance === "supports" && s?.verified === true);
       tallyStages(url.pathname, gate.pool, timing, { reads, backed });
       // The tool fee is most of this route's cost and is invisible in the

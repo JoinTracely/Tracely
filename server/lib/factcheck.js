@@ -13,7 +13,7 @@ import {
 import { citeFields, SOURCE_KINDS } from "./citeFields.js";
 import { isNarrowing } from "../shared/narrowing.js";
 import { trimSentence } from "./claimTrim.js";
-import { searchProvider, searchQueryFor, candidateResults } from "./searchApi.js";
+import { searchProvider, searchQueryFor, candidateResults, strongFirst } from "./searchApi.js";
 
 // Re-exported so every existing importer (server.js, tests) is unaffected by
 // CheckError having moved into its own module to break an import cycle.
@@ -598,7 +598,7 @@ const urlKey = (u) => String(u ?? "").trim().replace(/^https?:\/\/(www\.)?/i, ""
  * The provider's fee rides on the answer (`providerMicroCents`, charged by the
  * route with the tokens); a provider that failed charged nothing. When the
  * fallback fails, the cheap pass's tokens and fee ride on its error. */
-// Brave's five and OpenAlex's three, read and judged in one pass.
+// At most eight read and judged in one pass, the strong ones first (searchApi.js strongFirst).
 const CHEAP_MAX = 8;
 export async function cheapFirst({ claim, model, provider, judge, full, tell = () => {} }) {
   const started = performance.now();
@@ -608,9 +608,12 @@ export async function cheapFirst({ claim, model, provider, judge, full, tell = (
   } catch {
     found = null;
   }
-  const results = found ? candidateResults(found.results, CHEAP_MAX) : null;
+  const ranked = found ? strongFirst(candidateResults(found.results, 20), CHEAP_MAX) : null;
+  const results = ranked?.picked ?? null;
   const charged = Math.max(0, Number(found?.microCents) || 0);
-  const fee = { provider: provider.name, providerSearches: found?.searches ?? 0, providerMicroCents: charged };
+  // How many strong and unvetted candidates there were, and how many were judged: the log line's `picked=`.
+  const fee = { provider: provider.name, providerSearches: found?.searches ?? 0, providerMicroCents: charged,
+    cheapPicked: ranked ? { strong: ranked.strong, weak: ranked.weak, judged: ranked.picked.length } : null };
   let judged = null;
   if (results?.length) {
     // No snippet of the provider's is kept (Brave's terms allow only transient storage): a source's words are the page's own, from the receipts.
