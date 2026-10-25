@@ -46,6 +46,24 @@ test("a note opened from the sentence's card forgets both, and nothing else", ()
   assert.equal(X.popSteps.size, 1);
 });
 
+test("a note's search, sources that disagree: Suggest fix turns the card into the sentence's, at its fix", () => {
+  // Owner, 2026-10-25: "when I click suggest fix when I search for sources and they refute me, the button
+  // suggest fix doesnt do anything". The card open was the note's ("Source not cited"); the click set the
+  // sentence's step, which no card on screen showed.
+  const click = sliceBetween(SRC, "        primary = dmBtn(f?.revision ? POP_COPY.suggestFix : POP_COPY.openArticle, true);", "      } else if (canEditDoc()) {");
+  assert.match(click, /if \(stepKey !== hash\) \{ popSteps\.set\(hash, \{ \.\.\.stepOf\(hash\), step: "fix", backTo: stepKey \}\); popHash = hash; popPinned = true; paintPop\(\); return; \}/);
+  assert.match(click, /setStep\(hash, \{ step: "fix" \}\);/, "its own card: as before");
+  // And a note's search hands paintSources the note's card as stepKey.
+  assert.match(SRC, /function paintClaimSources\(key, pst, put\) \{[\s\S]*?paintSources\(pst\.claim, seg, cache\.get\(pst\.claim\), pst, put, \{\n\s+stepKey: key,/);
+  // Leaving then forgets the sentence's step and the note's (backTo).
+  const X = load();
+  X.popSteps.set("tip-1", { step: "sources", claim: "s1" });
+  X.popSteps.set("s1", { step: "fix", backTo: "tip-1" });
+  X.open("s1");
+  X.forgetPopStep();
+  assert.equal(X.popSteps.size, 0);
+});
+
 test("wired where the writer leaves: the hover's close, another underline taking over, typing and Esc — not a card opened for them", () => {
   assert.match(SRC, /function runHoverDecision\(d, st\) \{\n\s+if \(d\.act === "hide"\) \{ forgetPopStep\(\); hideDocsPopover\(\); return; \}\n\s+if \(!st\.bar\) return;\n\s+if \(popEl && popHash !== st\.bar\.hash\) forgetPopStep\(\);/);
   assert.match(SRC, /function typingClosesCard\(e\) \{[\s\S]*?clearHoverPending\(\);\n\s+forgetPopStep\(\);\n\s+hideDocsPopover\(\);\n\s+\}/);

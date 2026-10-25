@@ -922,6 +922,32 @@ purpose. Edits and searches carry on: only the card shown is reset.
 Not checked in real Docs. Tests: `server/test/ext-type-preview.test.js`,
 `server/test/ext-card-forgets-step.test.js`.
 
+## A dismissed card takes its notes
+
+Since 2.21.79. Owner, 2026-10-25: the verdict sheet's sentence 13 ("A 2024
+report from the World Health Organization concluded that antibiotics are
+effective treatments for viral infections …") was underlined amber. Its saved
+verdict was "false" with three refuting sources, and the Doc's dismissed list
+held its hash and nothing else: its red card had been dismissed. The "Source
+not cited" note on the same sentence rides on the red card while it shows
+(`tipCoversSentence`, "Also here"); with the card gone, it drew its own amber
+line. Red was never outranked: the red card was dismissed.
+- **A note on a whole sentence goes when that sentence's card is
+  dismissed** (`citationTips`: a note whose quote hashes to a dismissed
+  sentence). That covers both panels, the counts and the underlines. A page
+  note sits on the citation beside the sentence and keeps its own Dismiss.
+  Memory's "Bring back" brings both back.
+- **Suggest fix from a note's search.** In the note's card, a search whose
+  sources refute the sentence offers Suggest fix (the sentence's fix). It set
+  the sentence's step, which no card on screen showed, so it did nothing
+  (owner: "the button suggest fix doesnt do anything"). Now the card becomes
+  the sentence's, at its fix (`paintSources`, `stepKey !== hash`), and Back
+  goes to the sentence's problem card.
+
+No model call or search changes. Tests:
+`server/test/ext-dismissed-notes.test.js`,
+`server/test/ext-card-forgets-step.test.js`.
+
 ## Review all: never cut, easy to stop
 
 Owner, 2026-10-16: "it clips randomly, please make it easier to stop the

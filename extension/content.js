@@ -4866,7 +4866,13 @@
     const notInDbq = (t) => genre !== "dbq" || !["page", "nameonly", "vague", "uncited"].includes(t.kind);
     return [...quoteCitationTips(text, style), ...citationHygieneTips(text)].filter(notInDbq)
       .map((t) => ({ ...t, id: "tip:" + hashText(t.quote + "|" + t.kind), suggestion: "" }))
-      .filter((t) => !dismissed.has(t.id));
+      .filter((t) => !dismissed.has(t.id))
+      /* A note on a whole sentence rides on that sentence's card ("Also here",
+         tipCoversSentence), so dismissing the card dismisses the note with it.
+         Owner, 2026-10-25: a false claim whose red card had been dismissed came
+         back underlined amber, as its "Source not cited" note. A page note is
+         on the citation beside the sentence, and keeps its own Dismiss. */
+      .filter((t) => t.kind === "page" || !dismissed.has(hashText(t.quote)));
   }
   // Every note an essay or paper's panel lists, in both modes (each keeps its own memo, allTips).
   function tipsOf(text, genre, dismissed, review, style) {
@@ -9238,7 +9244,16 @@
       if (src && !citable) {
         // It contradicts the sentence: the fix is the way forward, never a citation on what it refutes.
         primary = dmBtn(f?.revision ? POP_COPY.suggestFix : POP_COPY.openArticle, true);
-        primary.addEventListener("click", () => { if (f?.revision) setStep(hash, { step: "fix" }); else window.open(src.url, "_blank", "noopener,noreferrer"); });
+        primary.addEventListener("click", () => {
+          if (!f?.revision) { window.open(src.url, "_blank", "noopener,noreferrer"); return; }
+          /* A note's search (the card open is the note's, stepKey): the fix is the
+             sentence's, so the card becomes the sentence's, at its fix. Setting the
+             sentence's step alone changed nothing on screen (owner, 2026-10-25: "when
+             I click suggest fix when I search for sources and they refute me, the
+             button suggest fix doesnt do anything"). Leaving forgets both (forgetPopStep). */
+          if (stepKey !== hash) { popSteps.set(hash, { ...stepOf(hash), step: "fix", backTo: stepKey }); popHash = hash; popPinned = true; paintPop(); return; }
+          setStep(hash, { step: "fix" });
+        });
       } else if (canEditDoc()) {
         // In place of the sentence's faulty citation when a card found one; beside it otherwise.
         primary = dmBtn(inserting ? POP_COPY.inserting : replace ? CITED_COPY.replace : named ? POP_COPY.name : POP_COPY.insert, true, { disabled: !src || inserting || docBusy });
