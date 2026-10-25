@@ -889,6 +889,39 @@ was timed, with that step's frame callbacks and the layout it left behind:
 Not measured in real Docs. Tests: `server/test/ext-fix-all.test.js`,
 `server/test/ext-type-preview.test.js`.
 
+## The preview covers no text, and the card starts over
+
+Since 2.21.78. Owner, 2026-10-25, with a screenshot of the IEA sentence's
+fix: "when I apply a revision it creates a white box that covers up text".
+That box was on purpose: a fix that made its paragraph a line longer was
+re-flowed onto a white sheet, with a shadow, laid over the lines below. Now
+the Type preview draws nothing outside the paragraph's own lines
+(`tpParagraph`):
+- **A little longer: drawn a little narrower.** The re-flow is laid out up to
+  15% narrower (`squeeze`, `TP_SQUEEZE_MIN`, in steps of 2.5%) until, with
+  every word in, it ends on the paragraph's last line. The canvas draws each
+  run into that width (`fillText`'s `maxWidth`), in the run's own font. On
+  the test paragraph a fix five words longer takes 7.5%.
+- **Longer than that: typed in the card instead** (mode `aside`). The old
+  words are struck where they are, and the new ones are typed into the
+  Accept card in the right margin, with its caret. Under the paragraph only
+  when the margin is too narrow, as before.
+- **Nothing is drawn past the last line** even if the page moved since it
+  was measured: a line that would be is left off, never laid over the text.
+
+And the hover card forgets its step (owner, the same day: "when I hover over
+a flag and click the action button such as suggest fix, and I stop hovering
+over it, and then I hover over it again, it stays at the next page … I want
+it to forget and go back to the original"). `forgetPopStep` runs when the
+pointer leaves (`runHoverDecision`'s hide), when another underline takes
+over, and on typing or Esc (`typingClosesCard`). A note opened from the
+sentence's card ("Also here") forgets that card too. `hideDocsPopover` itself
+keeps the step, because Sources ready's Show opens a card at a step on
+purpose. Edits and searches carry on: only the card shown is reset.
+
+Not checked in real Docs. Tests: `server/test/ext-type-preview.test.js`,
+`server/test/ext-card-forgets-step.test.js`.
+
 ## Review all: never cut, easy to stop
 
 Owner, 2026-10-16: "it clips randomly, please make it easier to stop the

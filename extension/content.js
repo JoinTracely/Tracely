@@ -8227,6 +8227,21 @@
     const popSteps = new Map();
     const stepOf = (hash) => popSteps.get(hash) ?? { step: "problem", selected: null, searched: false };
     function setStep(hash, patch) { popSteps.set(hash, { ...stepOf(hash), ...patch }); paintPop(); }
+    /* The open card forgets which card it was on once the writer leaves it.
+       Owner, 2026-10-25: "when I hover over a flag and click the action
+       button such as suggest fix, and I stop hovering over it, and then I
+       hover over it again, it stays at the next page as if I clicked suggest
+       fix. I want it to forget and go back to the original … overlay when I
+       stop hovering on them." The pointer moving away, another underline
+       taking over, typing or Esc: the next hover opens its first card. A
+       note opened from the sentence's card ("Also here") forgets that card
+       too. Edits and searches carry on; only the step is forgotten. */
+    function forgetPopStep() {
+      if (!popHash) return;
+      const back = stepOf(popHash).backTo;
+      popSteps.delete(popHash);
+      if (back) popSteps.delete(back);
+    }
     let popCard = null, popAbove = false, popWidth = POP_WIDTH;
 
     function editState(key) { return docEditState.get(key)?.state ?? null; }
@@ -9345,8 +9360,9 @@
       return { open: Boolean(popEl), popHash, onCard, onOwn, inTri, under: bar?.hash ?? null, bar, hit };
     }
     function runHoverDecision(d, st) {
-      if (d.act === "hide") { hideDocsPopover(); return; }
+      if (d.act === "hide") { forgetPopStep(); hideDocsPopover(); return; }
       if (!st.bar) return;
+      if (popEl && popHash !== st.bar.hash) forgetPopStep(); // another underline takes over: the one left starts over
 
       // From the START of the hovered line — the same place every time it opens, as Grammarly's hangs from its word.
       const hit = { ...st.hit, centerX: st.hit.left + Math.min(POP_LINE_IN, ((st.hit.right ?? st.hit.left) - st.hit.left) / 2) };
@@ -9419,6 +9435,7 @@
       const t = e.target;
       if (t && typeof t.closest === "function" && t.closest("[data-tracely-docs-popover], #tracely-host")) return;
       clearHoverPending();
+      forgetPopStep();
       hideDocsPopover();
     }
 
@@ -11238,6 +11255,8 @@
        that list is the preview (editGate.approved). */
     const TP_GLIDE_MS = 350, TP_CLICK_MS = 300, TP_STRIKE_MS = 200, TP_FADE_MS = 120, TP_CHAR_MS = 30, TP_TYPE_MAX_MS = 1200;
     const TP_FLOW_MAX_LINES = 15;
+    // A re-flow a little longer than its paragraph is drawn up to 15% narrower to stay in its lines (tpParagraph).
+    const TP_SQUEEZE_MIN = 0.85, TP_SQUEEZE_STEP = 0.025;
     const TP_WASH = "rgba(28,28,28,0.07)"; // ink at 7%, under the struck words
     /* What Tracely writes, highlighted until it is accepted. Owner, 2026-10-13:
        "please highlight what tracely writes before I accept" — the ink wash it
@@ -11527,10 +11546,29 @@
       const right = Math.max(...lines.map((l) => l.right), tpColumnRight(left, h));
       const diffs = lines.slice(1).map((l, i) => l.top - lines[i].top).sort((x, y) => x - y);
       const pitch = diffs.length ? diffs[Math.floor(diffs.length / 2)] : tpPitch(h);
+      const gap = diff.removed.trim() ? Math.max(2, m.measureText(" ").width * 0.6) : 0;
+      /* Inside its own lines. Owner, 2026-10-25: "when I apply a revision it
+         creates a white box that covers up text". A re-flow longer than the
+         paragraph used to run onto a white sheet laid over the lines below.
+         Now, once every word is in, it must end on the paragraph's last line:
+         a little longer is drawn a little narrower (`squeeze`, down to
+         TP_SQUEEZE_MIN); longer than that is not drawn in the line at all, and
+         the new words go in the card beside it instead (`overflow`, mode
+         "aside"). */
+      const er = end.at.node.getBoundingClientRect();
+      const ex = er.left + end.at.f * er.width, ey = er.top;
+      const lastTop = lines[lines.length - 1].top;
+      const fits = (k) => {
+        const flow = previewFlow([{ text: diff.inserted, ins: true }, { text: P.slice(at), ins: false }], (s) => m.measureText(s).width * k,
+          { startX: ex + gap, left, right, top: ey, pitch });
+        return flow[flow.length - 1].top <= lastTop + pitch / 2;
+      };
+      let squeeze = 1;
+      while (!fits(squeeze) && squeeze - TP_SQUEEZE_STEP >= TP_SQUEEZE_MIN - 1e-9) squeeze = Math.round((squeeze - TP_SQUEEZE_STEP) * 1000) / 1000;
+      if (!fits(squeeze)) return { overflow: true };
       return {
         rest: P.slice(at), pieces: whole.pieces, mask: rest.pieces, end: end.at, font, base: (h - (asc + desc)) / 2 + asc, h, pitch,
-        leftOff: left - lines[0].left, rightOff: right - lines[0].left,
-        gap: diff.removed.trim() ? Math.max(2, m.measureText(" ").width * 0.6) : 0,
+        leftOff: left - lines[0].left, rightOff: right - lines[0].left, gap, squeeze,
       };
     }
     // Rects grouped into visual lines: { top, height, left, right, gap } (gap: the widest space between two runs).
@@ -11605,10 +11643,14 @@
       const target = () => (main ? geo : geoUnder);
       const ins = Array.from(diff?.inserted ?? "");
       let para = inDoc && main && ins.length ? tpParagraph(main, diff, geo) : null;
+      const overflow = Boolean(para?.overflow);
+      if (overflow) para = null;
       // inline: typed in the line · strike: a deletion, struck in place ·
+      // aside: struck in place, typed in the card beside it (too long for its lines) ·
       // bubble: typed in a bubble under the line · pinned: beside the card.
-      const mode = !inDoc ? "pinned" : !main ? "strike" : para ? "inline" : ins.length ? "bubble" : "strike";
-      const compact = mode === "inline" || mode === "strike";
+      const mode = !inDoc ? "pinned" : !main ? "strike" : para ? "inline" : overflow ? "aside" : ins.length ? "bubble" : "strike";
+      const compact = mode === "inline" || mode === "strike" || mode === "aside";
+      const struckOnly = mode === "strike" || mode === "aside"; // nothing typed in the line
       // (Cite in doc asks the hook a few dry-run questions first: up to ~10 s.)
       const press = tpPress && Date.now() - tpPress.at < 15_000 ? tpPress : null;
       // From where the walkthrough's cursor is, else from the pressed button (or the underline).
@@ -11671,10 +11713,11 @@
       head.appendChild(status);
       bubble.appendChild(head);
 
-      // In the line, the typed words are on the canvas; this span carries them for the bubble.
-      const text = el("div", compact
+      // In the line, the typed words are on the canvas; this span carries them for the bubble,
+      // and for the card in the margin when they are too long for the line (aside).
+      const text = el("div", compact && mode !== "aside"
         ? { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
-        : { fontSize: "15px", lineHeight: "1.45", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: family ? `${family}, ${APP.font}` : "inherit" });
+        : { fontSize: mode === "aside" ? "13.5px" : "15px", lineHeight: "1.45", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: family ? `${family}, ${APP.font}` : "inherit" });
       text.setAttribute("aria-hidden", "true"); // read whole from the description, not letter by letter
       const typed = el("span", { color: DM.ink, background: TP_INSERT, borderRadius: "2px" }); // what Tracely writes, highlighted
       typed.setAttribute("data-tracely-type-typed", "");
@@ -11689,7 +11732,7 @@
         if (diff.keepAfter) text.appendChild(el("span", { color: DM.body }, tpClip(diff.keepAfter, 40, false)));
       } else if (diff && ins.length) {
         text.appendChild(typed);
-        if (!compact) text.appendChild(typingCaret);
+        if (!compact || mode === "aside") text.appendChild(typingCaret);
       } else if (diff && !compact) {
         text.appendChild(el("span", { fontSize: "13px", color: DM.body }, diff.removed ? TP_COPY.deletes : TP_COPY.same));
       }
@@ -11801,7 +11844,8 @@
           bottom: Math.max(...lines.map((l) => l.top + l.height)), mask: para.mask.map((p) => barTextRect(p)).filter(Boolean),
         };
       };
-      const measure = (s) => tpMeasurer().measureText(s).width;
+      // A squeezed paragraph (tpParagraph) is laid out and drawn that much narrower.
+      const measure = (s) => tpMeasurer().measureText(s).width * (para?.squeeze ?? 1);
       let drawnSig = null; // what the canvas shows: drawn again only when it would differ
       const drawFlow = (t, c) => {
         if (!cv) { flowNow = null; return; }
@@ -11828,52 +11872,26 @@
         ctx.beginPath();
         ctx.rect(c.left, c.top, c.width, c.height);
         ctx.clip();
-        // Page white over the original words after the change, and under every line drawn
-        // (lines past the paragraph's own overlay what is below it).
+        // Only the paragraph's own lines: nothing is drawn over what is below it (tpParagraph keeps the
+        // re-flow inside them; a page that moved since is cut short rather than covered).
+        const lastTop = g.lines[g.lines.length - 1].top;
+        const lines = flow.filter((l) => l.top <= lastTop + para.pitch / 2);
+        // Page white over the original words after the change, and under every line drawn.
         ctx.fillStyle = "#fff";
         for (const r of g.mask) ctx.fillRect(r.left - 1, r.top - 1, r.width + 2, r.height + 5); // its underline too: marks do not re-flow
-        flow.forEach((l, i) => {
+        lines.forEach((l, i) => {
           if (i === 0) ctx.fillRect(l.x - 1, l.top - 1, Math.max(0, g.right - l.x + 2), para.h + 2);
-          else ctx.fillRect(g.left - 1, flow[i - 1].top + para.h, g.right - g.left + 2, l.top - flow[i - 1].top + 1);
+          else ctx.fillRect(g.left - 1, lines[i - 1].top + para.h, g.right - g.left + 2, l.top - lines[i - 1].top + 1);
         });
-        // Past the paragraph's own last line the re-flow is a sheet lifted over the page —
-        // opaque white, a soft shadow on its bottom edge only, no taller than the lines it
-        // carries — so what it covers reads as underneath, not gone.
-        const flowBottom = flow[flow.length - 1].top + para.h;
-        if (flowBottom > g.bottom + 1) {
-          const sx = g.left - 6, sw = g.right - g.left + 12, sy = g.bottom + 1;
-          // Its bottom snaps past every Docs line it touches — and Tracely's own underline under that
-          // line — so a line is under it whole, never cut in half.
-          let bottom = flowBottom + 2;
-          const marks = docsBars.filter((b) => b.el?.isConnected && b.el.style.display !== "none").map((b) => {
-            const r = b.el.getBoundingClientRect();
-            return { left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height };
-          });
-          for (let grew = true; grew;) {
-            grew = false;
-            for (const r of [...visibleRuns(), ...marks]) {
-              if (r.top < bottom && r.bottom > sy && r.right > sx && r.left < sx + sw && r.bottom + 2 > bottom) { bottom = r.bottom + 2; grew = true; }
-            }
-          }
-          const sh = bottom - sy;
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(sx, sy, sw, sh + 16); // clipped to its own width and below its top: the shadow falls under it only
-          ctx.clip();
-          ctx.shadowColor = "rgba(60,64,67,0.28)";
-          ctx.shadowBlur = 8;
-          ctx.shadowOffsetY = 2;
-          ctx.fillStyle = "#fff";
-          ctx.fillRect(sx, sy, sw, sh);
-          ctx.restore();
-        }
         ctx.font = para.font;
         ctx.textBaseline = "alphabetic";
-        for (const l of flow) {
+        for (const l of lines) {
           for (const s of l.spans) {
             if (s.ins) { ctx.fillStyle = TP_INSERT; ctx.fillRect(s.x, l.top, measure(s.text.replace(/\s+$/, "")), para.h); }
             ctx.fillStyle = s.ins ? DOC_INK : "#000";
-            ctx.fillText(s.text, s.x, l.top + para.base);
+            // Squeezed: the canvas draws the words into the narrower width the layout gave them.
+            if (para.squeeze < 1) ctx.fillText(s.text, s.x, l.top + para.base, measure(s.text));
+            else ctx.fillText(s.text, s.x, l.top + para.base);
           }
         }
         ctx.restore();
@@ -11940,7 +11958,7 @@
         const p = pointOf(target());
         const struckRects = (main && geo ? geo.pieces : []).map((q) => barTextRect(q)).filter(Boolean);
         const last = struckRects[struckRects.length - 1];
-        if (mode === "strike" && last) { const a = { x: last.left + last.width, y: last.top, h: last.height }; return [a, a]; }
+        if (struckOnly && last) { const a = { x: last.left + last.width, y: last.top, h: last.height }; return [a, a]; }
         if (mode === "inline" && flowNow) {
           const start = { x: flowNow.g.end.x, y: flowNow.g.end.y, h: para.h };
           const f = flowNow.final;
@@ -11985,7 +12003,7 @@
         cur.arrow.style.opacity = t >= settle + 1000 ? "0.6" : "1";
       };
       const placeCaret = (t) => {
-        if (!inDoc || mode === "strike" || t < tl.showAt) { caret.style.display = "none"; return; }
+        if (!inDoc || struckOnly || t < tl.showAt) { caret.style.display = "none"; return; }
         const g = target();
         const e = typedEnd();
         if (!g || !e) { caret.style.display = "none"; return; }
@@ -12053,7 +12071,7 @@
               lastBottom = Math.max(flowNow.g.bottom, f[f.length - 1].top + para.h);
               firstTop = Math.min(firstTop, flowNow.g.lines[0].top);
               left = flowNow.g.lines[0].left;
-            } else if (mode === "strike") {
+            } else if (struckOnly) {
               left = Math.min(...rects.map((r) => r.left), p.x);
             }
             top = lastBottom + (compact ? 8 : 10);
@@ -12118,7 +12136,7 @@
             relocAt = performance.now();
             if (gone(geo)) geo = locateMain();
             if (gone(geoUnder)) geoUnder = locateUnder();
-            if (paraGone && geo) para = tpParagraph(main, diff, geo) ?? para;
+            if (paraGone && geo) { const again = tpParagraph(main, diff, geo); if (again && !again.overflow) para = again; }
           }
           paintText(t);
           drawFlow(t, clipNow);

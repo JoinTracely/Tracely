@@ -737,6 +737,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.78", "The preview of a fix no longer covers the lines below it with a white box. And a card you moved on from, say to Suggest fix, opens at its start again the next time you hover."],
   ["2.21.77", "A false or contradicted claim, or one that doesn't make sense, now has Delete claim. On Student and Pro, Replace with better claim puts in what a source says on the point, quoted and cited."],
   ["2.21.76", "Email us (Settings → Help) now writes to info@jointracely.com, Tracely's one address."],
   ["2.21.75", "A true statistic with the wrong source in its citation is now Wrong source cited, not a contradicted fact, and so is a sentence that credits one organisation but cites another. A conclusion that doesn't follow from its evidence is Doesn't make sense."],
