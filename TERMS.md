@@ -3,8 +3,9 @@
 *Effective: 7 October 2026.*
 
 These terms are an agreement between you and Tracely ("we", "us") about using
-the Tracely Chrome extension, the Tracely Windows app, the website at
-jointracely.com and the Tracely service behind them (together, "Tracely").
+the Tracely Chrome extension, the Tracely desktop app for Windows and Mac,
+the website at jointracely.com and the Tracely service behind them
+(together, "Tracely").
 By using Tracely you agree to these terms and to our
 [Privacy Policy](https://jointracely.com/privacy/). If you do not agree, do
 not use Tracely.
@@ -45,13 +46,13 @@ page or by emailing hello@jointracely.com.
 
 ## 5. Plans, billing and cancelling
 
-- **Free** costs nothing and has daily limits.
+- **Free** costs nothing and has daily and monthly limits.
 - **Student** and **Pro** are monthly subscriptions at the price shown on
   jointracely.com when you buy, plus any applicable tax. Payments are
   handled by Stripe.
 - **Automatic renewal.** A subscription renews automatically every month and
-  your payment method is charged at the start of each month **until you
-  cancel.**
+  your payment method is charged once a month, on the day of the month you
+  subscribed, **until you cancel.**
 - **Cancelling.** Cancel at any time from
   [Manage subscription](https://billing.stripe.com/p/login/5kQ3cv2Sy5gw4XY49P4gg00),
   or by emailing hello@jointracely.com. Your plan stays active until the end
@@ -82,10 +83,10 @@ We may suspend or end access for anyone who does.
 ## 7. Other services
 
 Tracely works inside, and relies on, other companies' services — such as
-Google Docs, Chrome, Windows, OpenAI, Stripe, Supabase and the scholarly
-indexes it searches. Their own terms apply to your use of them, and we are not
-responsible for them. Sources Tracely suggests belong to their authors and
-publishers.
+Google Docs, Chrome, Windows, macOS, OpenAI, Stripe, Supabase and the
+scholarly indexes it searches. Their own terms apply to your use of them,
+and we are not responsible for them. Sources Tracely suggests belong to their
+authors and publishers.
 
 ## 8. Changes and availability
 
