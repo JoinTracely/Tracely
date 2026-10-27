@@ -737,6 +737,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.80", "Settings say Pause for an hour and Match my document, the same words as jointracely.com."],
   ["2.21.79", "Dismissing a sentence's card now dismisses the notes on that sentence too, so a claim you dismissed no longer comes back underlined in another colour. Suggest fix works on sources that disagree with your sentence."],
   ["2.21.78", "The preview of a fix no longer covers the lines below it with a white box. And a card you moved on from, say to Suggest fix, opens at its start again the next time you hover."],
   ["2.21.77", "A false or contradicted claim, or one that doesn't make sense, now has Delete claim. On Student and Pro, Replace with better claim puts in what a source says on the point, quoted and cited."],
