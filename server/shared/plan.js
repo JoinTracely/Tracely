@@ -293,9 +293,10 @@ export function thoroughMonthlyUsd(plan) {
  * a day and a Pro ~9, so these trip only far beyond normal writing.
  *
  * Lowered on 2026-10-22 (owner) from $1/$4 and $2/$8, so a subscriber at the
- * limit still leaves a margin. After Stripe's fees a Student brings in about
- * $4.51 a month and a Pro about $9.33; at $8 a Pro at the limit left about $1.
- * The month is still about twice regular use for both. */
+ * limit still leaves a margin. That was at $4.99 and $9.99, when after Stripe's
+ * fees a Student brought in about $4.51 a month and a Pro about $9.33. Since
+ * 2026-10-27 (owner) Student is $10 and Pro $17.99, about $9.34 and $17.04
+ * after fees. The month is still about twice regular use for both. */
 export const FAIR_USE = {
   student: { day: 0.75, month: 2.5 },
   pro: { day: 1.5, month: 5 },

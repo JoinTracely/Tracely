@@ -214,8 +214,8 @@ export const PLAN_LABEL: Record<Plan, string> = {
 
 export const PLAN_PRICE: Record<Plan, string> = {
   free: '$0',
-  student: '$4.99/mo',
-  pro: '$9.99/mo'
+  student: '$10/mo',
+  pro: '$17.99/mo'
 }
 
 /** What each plan gets, in the order the pricing page lists it.
