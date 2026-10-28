@@ -337,6 +337,14 @@ const DEMO_ROUTES = new Set([...Object.keys(DEMO_ALIAS), "/api/demo/status"]);
  * account's own plan, limits and usage, read with that account's token, for
  * the website's Settings (owner, 2026-10-28). Nothing that spends or writes. */
 const SITE_API = new Set(["/api/entitlement"]);
+/* ...and, signed in, the checks and source searches themselves: the
+ * website's Fact check and Find sources run on the visitor's own account
+ * and plan, under the extension's limits, pools and windows (owner,
+ * 2026-10-28: a plan should do something on the website). Signed out they
+ * stay on the try-out (DEMO_ROUTES): a page calling these without a
+ * verified account is a 401, never the anonymous free plan, whose only
+ * bound is an address's rate limit (callerId). */
+const SITE_SIGNED_IN = new Set(["/api/check", "/api/sources"]);
 const DEMO_KIND = { "/api/check": "check", "/api/sources": "sources", "/api/review": "review" };
 function routeAllowedForOrigin(origin, pathname) {
   // TRACELY_PUBLIC_ORIGIN reaches the demo routes and static files ONLY —
@@ -346,7 +354,7 @@ function routeAllowedForOrigin(origin, pathname) {
   // served from that host.
   if (origin && origin === demoPublicOrigin()) return !pathname.startsWith("/api/") || DEMO_ROUTES.has(pathname);
   // The website's pages (lib/demo.js demoSiteOrigins): the same fence.
-  if (isSiteOrigin(origin)) return !pathname.startsWith("/api/") || DEMO_ROUTES.has(pathname) || SITE_API.has(pathname);
+  if (isSiteOrigin(origin)) return !pathname.startsWith("/api/") || DEMO_ROUTES.has(pathname) || SITE_API.has(pathname) || SITE_SIGNED_IN.has(pathname);
   if (!origin || SELF_ORIGINS.has(origin)) return true;
   if (!pathname.startsWith("/api/")) return true; // static files are harmless
   return EXTENSION_API.has(pathname);
@@ -1456,6 +1464,11 @@ const server = http.createServer(async (req, res) => {
         extension: EXTENSION_API.has(url.pathname),
         route: url.pathname,
       });
+      // The website checks with an account or not at all (SITE_SIGNED_IN).
+      // The gate's hold is released by the finally below.
+      if (isSiteOrigin(req.headers.origin) && !(gate.ent.enforced && gate.ent.userId)) {
+        throw new CheckError("unauthorized", "Sign in again to check with your plan.", { status: 401 });
+      }
     }
 
     const staticHit = (req.method === "GET" && (resolveUiPage(url.pathname) ?? STATIC_FILES[url.pathname] ?? resolveStatic(url.pathname))) || null;

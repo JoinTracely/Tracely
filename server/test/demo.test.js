@@ -119,11 +119,14 @@ test("limits and the off switch read the environment like the budgets do", () =>
 
 // ── the servers ──────────────────────────────────────────────────────────
 
-// "Hosted" needs a Supabase project; this one knows no tokens, so every
-// extension caller is the anonymous free plan, enforced.
+// "Hosted" needs a Supabase project; this one knows one token (a free
+// account signed in on the website) and no other, so every other extension
+// caller is the anonymous free plan, enforced.
+const SITE_TOKEN = "tok-site-user";
 const supabase = http.createServer((req, res) => {
-  res.writeHead(401, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ msg: "invalid token" }));
+  const ok = req.url === "/auth/v1/user" && req.headers.authorization === `Bearer ${SITE_TOKEN}`;
+  res.writeHead(ok ? 200 : 401, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(ok ? { id: "u-site", email: "site@example.test", app_metadata: {} } : { msg: "invalid token" }));
 });
 
 /* PRICED's OpenAI: a preload swapping globalThis.fetch for api.openai.com
@@ -375,7 +378,7 @@ test("the website's pages reach the demo routes with credentialed CORS — and n
   assert.equal(pre.headers.get("access-control-allow-origin"), SITE[2]);
   assert.equal(pre.headers.get("access-control-allow-credentials"), "true");
   assert.equal(pre.headers.get("access-control-allow-headers"), "Content-Type, Authorization", "nothing the website doesn't send");
-  for (const [method, p, body] of [["POST", "/api/check", checkBody()], ["POST", "/api/sources", { claim: SENTENCE }], ["POST", "/api/review", { text: SENTENCE }],
+  for (const [method, p, body] of [["POST", "/api/review", { text: SENTENCE }], ["POST", "/api/sources/stream", { claim: SENTENCE }], ["POST", "/api/kind", { text: SENTENCE }],
     ["GET", "/api/documents"], ["GET", "/api/status"], ["POST", "/api/cite-url", { url: "https://example.org" }], ["POST", "/api/account", {}], ["DELETE", "/api/account"]]) {
     const r = await call(ON, method, p, { body, headers: { Origin: SITE[1] }, cookie: v });
     assert.equal(r.status, 403, `${method} ${p} from the website`);
@@ -398,6 +401,31 @@ test("a website page may read the signed-in account's plan and usage (/api/entit
   assert.equal(r.body.plan, "free", "a token Supabase refuses is served as free, as the extension is");
   const w = await call(ON, "POST", "/api/entitlement", { body: {}, headers: { Origin: SITE[2] } });
   assert.notEqual(w.status, 200, "a read only");
+});
+
+test("signed in, a website page checks and searches on its own account; signed out or with a bad token, it may not", async () => {
+  const site = { Origin: SITE[2] };
+  const before = (await status(ON)).budget.spentUsd;
+  for (const auth of [undefined, "Bearer not-a-real-token"]) {
+    for (const [p, body] of [["/api/check", checkBody()], ["/api/sources", { claim: SENTENCE }]]) {
+      const r = await call(ON, "POST", p, { body, headers: { ...site, ...(auth ? { Authorization: auth } : {}) } });
+      assert.equal(r.status, 401, `${p} ${auth ? "with a bad token" : "signed out"}: ${JSON.stringify(r.body)}`);
+      assert.equal(errorOf(r).kind, "unauthorized");
+      assert.equal(r.headers.get("access-control-allow-origin"), SITE[2], "the page must read why, to sign in again");
+    }
+  }
+  assert.equal((await status(ON)).budget.spentUsd, before, "nothing refused was charged to the extension's pool");
+  const me = { ...site, Authorization: `Bearer ${SITE_TOKEN}` };
+  const c = await call(ON, "POST", "/api/check", { body: checkBody(), headers: me });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  assert.ok(Array.isArray(c.body.findings), "the extension's /api/check answer");
+  assert.equal(c.body.plan, "free", "the account's own plan");
+  const s = await call(ON, "POST", "/api/sources", { body: { claim: SENTENCE }, headers: me });
+  assert.equal(s.status, 200, JSON.stringify(s.body));
+  const e = await call(ON, "GET", "/api/entitlement", { headers: me });
+  assert.equal(e.body.usage.sources.today, 1, "counted on the account, with the extension's searches");
+  // The extension's own callers are unchanged: no origin needed, no sign-in required.
+  assert.equal((await call(ON, "POST", "/api/check", { body: checkBody() })).status, 200);
 });
 
 test("a website page's first status read mints the cookie the demo routes accept; nobody else's does", async () => {

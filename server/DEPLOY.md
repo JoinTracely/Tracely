@@ -459,7 +459,10 @@ What bounds it, in the order `demoGate` checks:
   page, with credentialed CORS and the same fence as `TRACELY_PUBLIC_ORIGIN`:
   the demo routes and nothing else of the API, but for reading the signed-in
   account's `/api/entitlement` with its own token (the website's Settings,
-  `SITE_API`, 2026-10-28). Since 2026-10-27.
+  `SITE_API`, 2026-10-28), and, signed in only, `/api/check` and
+  `/api/sources` on the visitor's own account and plan (`SITE_SIGNED_IN`,
+  2026-10-28: a page calling them without a verified account is a 401).
+  Since 2026-10-27.
 - **The visitor cookie** `tracely_demo` (HttpOnly, Secure, SameSite=Lax, a
   day), minted by `GET /try`, or by a website page's first
   `GET /api/demo/status`, HMAC-signed with the secret. Missing or forged:
