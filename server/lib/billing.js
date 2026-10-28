@@ -186,8 +186,10 @@ export function planChangeForEvent(event, env = process.env) {
  * precisely because only this key can write it, so writing anywhere else
  * would produce a plan the account holder could have set themselves.
  *
- * PATCH merges top-level metadata keys, so other app_metadata (provider,
- * providers) survives.
+ * PUT, Supabase's admin update (GoTrue PUT /admin/users/{id}). It was a
+ * PATCH, which Supabase answers 405: found 2026-10-28, when the first sandbox
+ * purchase stayed on Starter and Stripe was told to retry. Its app_metadata
+ * merges top-level keys, so other app_metadata (provider, providers) survives.
  */
 export async function writePlanToSupabase(userId, plan) {
   const base = (process.env.SUPABASE_URL ?? "").replace(/\/+$/, "");
@@ -195,7 +197,7 @@ export async function writePlanToSupabase(userId, plan) {
   if (!base || !key || !userId) return { ok: false, reason: "not_configured" };
   try {
     const res = await fetch(`${base}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
-      method: "PATCH",
+      method: "PUT",
       headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({ app_metadata: { plan: normalizePlan(plan) } }),
       signal: AbortSignal.timeout(ADMIN_TIMEOUT_MS),

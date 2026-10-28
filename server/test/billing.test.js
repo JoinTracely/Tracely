@@ -15,8 +15,32 @@ import {
   planForSubscription,
   planChangeForEvent,
   supabaseUserIdFrom,
+  writePlanToSupabase,
   SIGNATURE_TOLERANCE_MS,
 } from "../lib/billing.js";
+
+test("the plan is written with Supabase's admin update, a PUT (a PATCH is a 405), and only the plan is sent", async () => {
+  const saved = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY, fetch: globalThis.fetch };
+  process.env.SUPABASE_URL = "https://proj.supabase.test/";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-test";
+  const seen = [];
+  globalThis.fetch = async (url, opts) => {
+    seen.push({ url, method: opts.method, body: JSON.parse(opts.body), auth: opts.headers.Authorization, apikey: opts.headers.apikey });
+    return { ok: opts.method === "PUT", status: opts.method === "PUT" ? 200 : 405 };
+  };
+  try {
+    assert.deepEqual(await writePlanToSupabase("user-1", "pro"), { ok: true });
+    assert.equal(seen[0].method, "PUT");
+    assert.equal(seen[0].url, "https://proj.supabase.test/auth/v1/admin/users/user-1");
+    assert.deepEqual(seen[0].body, { app_metadata: { plan: "pro" } }, "the plan alone: Supabase merges it into the rest");
+    assert.equal(seen[0].apikey, "service-role-test");
+    assert.equal(seen[0].auth, "Bearer service-role-test");
+  } finally {
+    if (saved.url === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = saved.url;
+    if (saved.key === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = saved.key;
+    globalThis.fetch = saved.fetch;
+  }
+});
 
 const SECRET = "whsec_test_secret";
 const NOW = 1_756_500_000_000; // fixed clock; the tolerance window is relative
