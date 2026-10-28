@@ -393,7 +393,9 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   reaches the demo routes and static files only (decided before the self-origin
   pass); never add it to `SELF_ORIGINS`. The website's own pages
   (`demoSiteOrigins`: jointracely.com, www, new., plus `TRACELY_SITE_ORIGINS`)
-  are held to the same fence and get their own credentialed CORS answer
+  are held to the same fence, plus `SITE_API` (reading the signed-in
+  account's `/api/entitlement` with its own token, for the website's
+  Settings, 2026-10-28), and get their own credentialed CORS answer
   (`siteCorsHeaders`), never the extension's; their first `/api/demo/status`
   mints the visitor cookie (2026-10-27). The caller is always the free plan,
   enforced; never call `withBetaGrant` for it. `test/demo.test.js` pins all of

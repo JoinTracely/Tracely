@@ -333,6 +333,10 @@ const LOOKUP_ROUTES = new Set(["/api/compare-source"]);
  * try-out runs exactly the code the extension does. */
 const DEMO_ALIAS = { "/api/demo/check": "/api/check", "/api/demo/sources": "/api/sources", "/api/demo/review": "/api/review" };
 const DEMO_ROUTES = new Set([...Object.keys(DEMO_ALIAS), "/api/demo/status"]);
+/* What else the website's pages may call (demoSiteOrigins): the signed-in
+ * account's own plan, limits and usage, read with that account's token, for
+ * the website's Settings (owner, 2026-10-28). Nothing that spends or writes. */
+const SITE_API = new Set(["/api/entitlement"]);
 const DEMO_KIND = { "/api/check": "check", "/api/sources": "sources", "/api/review": "review" };
 function routeAllowedForOrigin(origin, pathname) {
   // TRACELY_PUBLIC_ORIGIN reaches the demo routes and static files ONLY —
@@ -342,7 +346,7 @@ function routeAllowedForOrigin(origin, pathname) {
   // served from that host.
   if (origin && origin === demoPublicOrigin()) return !pathname.startsWith("/api/") || DEMO_ROUTES.has(pathname);
   // The website's pages (lib/demo.js demoSiteOrigins): the same fence.
-  if (isSiteOrigin(origin)) return !pathname.startsWith("/api/") || DEMO_ROUTES.has(pathname);
+  if (isSiteOrigin(origin)) return !pathname.startsWith("/api/") || DEMO_ROUTES.has(pathname) || SITE_API.has(pathname);
   if (!origin || SELF_ORIGINS.has(origin)) return true;
   if (!pathname.startsWith("/api/")) return true; // static files are harmless
   return EXTENSION_API.has(pathname);
@@ -395,15 +399,16 @@ function corsHeaders(req) {
 /* The website's pages: their own CORS answer, never the extension's (below
  * corsHeaders on purpose: spend.test.js reads the extension's header list as
  * the first Access-Control-Allow-Headers in this file). With
- * credentials, because the visitor cookie travels; Content-Type only, because
- * nothing else is sent. routeAllowedForOrigin keeps them to the demo routes. */
+ * credentials, because the visitor cookie travels; Content-Type, and
+ * Authorization for the account read (SITE_API). routeAllowedForOrigin keeps
+ * them to the demo routes and SITE_API. */
 const isSiteOrigin = (origin) => Boolean(origin) && demoSiteOrigins().has(origin);
 function siteCorsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Max-Age": "600",
     Vary: "Origin",
   };
