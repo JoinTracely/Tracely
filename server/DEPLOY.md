@@ -457,7 +457,9 @@ What bounds it, in the order `demoGate` checks:
   `SITE_ORIGINS` in lib/demo.js; `TRACELY_SITE_ORIGINS` adds more,
   comma-separated, e.g. a local preview) call the same demo routes from the
   page, with credentialed CORS and the same fence as `TRACELY_PUBLIC_ORIGIN`:
-  the demo routes and nothing else of the API. Since 2026-10-27.
+  the demo routes and nothing else of the API, but for reading the signed-in
+  account's `/api/entitlement` with its own token (the website's Settings,
+  `SITE_API`, 2026-10-28). Since 2026-10-27.
 - **The visitor cookie** `tracely_demo` (HttpOnly, Secure, SameSite=Lax, a
   day), minted by `GET /try`, or by a website page's first
   `GET /api/demo/status`, HMAC-signed with the secret. Missing or forged:

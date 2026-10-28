@@ -374,9 +374,9 @@ test("the website's pages reach the demo routes with credentialed CORS — and n
   assert.equal(pre.status, 204);
   assert.equal(pre.headers.get("access-control-allow-origin"), SITE[2]);
   assert.equal(pre.headers.get("access-control-allow-credentials"), "true");
-  assert.equal(pre.headers.get("access-control-allow-headers"), "Content-Type", "nothing the website doesn't send");
+  assert.equal(pre.headers.get("access-control-allow-headers"), "Content-Type, Authorization", "nothing the website doesn't send");
   for (const [method, p, body] of [["POST", "/api/check", checkBody()], ["POST", "/api/sources", { claim: SENTENCE }], ["POST", "/api/review", { text: SENTENCE }],
-    ["GET", "/api/documents"], ["GET", "/api/entitlement"], ["GET", "/api/status"], ["POST", "/api/cite-url", { url: "https://example.org" }]]) {
+    ["GET", "/api/documents"], ["GET", "/api/status"], ["POST", "/api/cite-url", { url: "https://example.org" }], ["POST", "/api/account", {}], ["DELETE", "/api/account"]]) {
     const r = await call(ON, method, p, { body, headers: { Origin: SITE[1] }, cookie: v });
     assert.equal(r.status, 403, `${method} ${p} from the website`);
     assert.equal(errorOf(r).message, "Origin not allowed for this endpoint");
@@ -386,6 +386,18 @@ test("the website's pages reach the demo routes with credentialed CORS — and n
   const ext = await call(ON, "OPTIONS", "/api/check", { headers: { Origin: "chrome-extension://pkaihmliboboiafoodfaoflflcpipcnd", "Access-Control-Request-Method": "POST" } });
   assert.equal(ext.headers.get("access-control-allow-credentials"), null);
   assert.equal(ext.headers.get("access-control-allow-headers"), "Content-Type, Authorization, X-Tracely-Install, X-Tracely-Beta");
+});
+
+test("a website page may read the signed-in account's plan and usage (/api/entitlement), and only read it", async () => {
+  const pre = await call(ON, "OPTIONS", "/api/entitlement", { headers: { Origin: SITE[2], "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization" } });
+  assert.equal(pre.status, 204);
+  assert.ok(pre.headers.get("access-control-allow-headers").split(", ").includes("Authorization"), "the account's token must get through the preflight");
+  const r = await call(ON, "GET", "/api/entitlement", { headers: { Origin: SITE[2], Authorization: "Bearer not-a-real-token" } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.headers.get("access-control-allow-origin"), SITE[2]);
+  assert.equal(r.body.plan, "free", "a token Supabase refuses is served as free, as the extension is");
+  const w = await call(ON, "POST", "/api/entitlement", { body: {}, headers: { Origin: SITE[2] } });
+  assert.notEqual(w.status, 200, "a read only");
 });
 
 test("a website page's first status read mints the cookie the demo routes accept; nobody else's does", async () => {
