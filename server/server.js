@@ -36,7 +36,7 @@ import { GUARDS, SPEND, rollingCounter, keyedRateLimiter, keyedRollingSum } from
 import { problemsFor, markFor } from "./shared/marks.js";
 import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus } from "./lib/failureLog.js";
 import { fetchUrlMetadata } from "./lib/citeMeta.js";
-import { DEMO_MESSAGES, demoSecret, demoPublicOrigin, demoOff, visitorOf, mintVisitor, visitorCookie, demoCallerId, demoAddressKey,
+import { DEMO_MESSAGES, demoSecret, demoPublicOrigin, demoSiteOrigins, DEMO_COOKIE, demoOff, visitorOf, mintVisitor, visitorCookie, demoCallerId, demoAddressKey,
          demoAdmit, demoRecord, demoStatus, demoPoolAdmission, demoOffReason, DEMO_SECRET_MIN_CHARS } from "./lib/demo.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -220,6 +220,7 @@ function originAllowed(origin) {
   // The try-out page's own origin (TRACELY_PUBLIC_ORIGIN): admitted here, and
   // held to the demo routes and static files by routeAllowedForOrigin.
   if (origin === demoPublicOrigin()) return true;
+  if (isSiteOrigin(origin)) return true; // the website's pages: the same fence
   if (PINNED_EXTENSIONS.size) return PINNED_EXTENSIONS.has(origin);
   return origin.startsWith("chrome-extension://");
 }
@@ -340,6 +341,8 @@ function routeAllowedForOrigin(origin, pathname) {
   // which would hand /api/documents, /api/library and the rest to any page
   // served from that host.
   if (origin && origin === demoPublicOrigin()) return !pathname.startsWith("/api/") || DEMO_ROUTES.has(pathname);
+  // The website's pages (lib/demo.js demoSiteOrigins): the same fence.
+  if (isSiteOrigin(origin)) return !pathname.startsWith("/api/") || DEMO_ROUTES.has(pathname);
   if (!origin || SELF_ORIGINS.has(origin)) return true;
   if (!pathname.startsWith("/api/")) return true; // static files are harmless
   return EXTENSION_API.has(pathname);
@@ -364,6 +367,7 @@ function hostAllowed(host) {
 
 function corsHeaders(req) {
   const origin = req.headers.origin ?? "";
+  if (isSiteOrigin(origin)) return siteCorsHeaders(origin);
   if (originAllowed(origin) && origin && !SELF_ORIGINS.has(origin)) {
     return {
       "Access-Control-Allow-Origin": origin,
@@ -386,6 +390,23 @@ function corsHeaders(req) {
     };
   }
   return {};
+}
+
+/* The website's pages: their own CORS answer, never the extension's (below
+ * corsHeaders on purpose: spend.test.js reads the extension's header list as
+ * the first Access-Control-Allow-Headers in this file). With
+ * credentials, because the visitor cookie travels; Content-Type only, because
+ * nothing else is sent. routeAllowedForOrigin keeps them to the demo routes. */
+const isSiteOrigin = (origin) => Boolean(origin) && demoSiteOrigins().has(origin);
+function siteCorsHeaders(origin) {
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Max-Age": "600",
+    Vary: "Origin",
+  };
 }
 
 function json(res, status, body, extraHeaders = {}) {
@@ -1500,7 +1521,12 @@ const server = http.createServer(async (req, res) => {
     // no gate, no spend, no address window.
     if (req.method === "GET" && url.pathname === "/api/demo/status") {
       loadEnvFile();
-      json(res, 200, demoStatus(req), cors);
+      // A page on the website has no cookie until it asks: its first status
+      // read mints one, as loading /try does (tryPageHeaders). Only for the
+      // website's origins; any other caller without a cookie is refused below.
+      const minted = isSiteOrigin(req.headers.origin) && !demoOff() && !visitorOf(req) ? mintVisitor(demoSecret()) : null;
+      const asked = minted ? { headers: { ...req.headers, cookie: `${DEMO_COOKIE}=${minted.value}` } } : req;
+      json(res, 200, demoStatus(asked), minted ? { ...cors, "Set-Cookie": visitorCookie(minted.value) } : cors);
       return;
     }
 
