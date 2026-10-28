@@ -395,7 +395,9 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   (`demoSiteOrigins`: jointracely.com, www, new., plus `TRACELY_SITE_ORIGINS`)
   are held to the same fence, plus `SITE_API` (reading the signed-in
   account's `/api/entitlement` with its own token, for the website's
-  Settings, 2026-10-28), and get their own credentialed CORS answer
+  Settings, 2026-10-28) and `SITE_SIGNED_IN` (`/api/check` and
+  `/api/sources` with a verified account only, else 401: the website's
+  tools on the visitor's own plan), and get their own credentialed CORS answer
   (`siteCorsHeaders`), never the extension's; their first `/api/demo/status`
   mints the visitor cookie (2026-10-27). The caller is always the free plan,
   enforced; never call `withBetaGrant` for it. `test/demo.test.js` pins all of
