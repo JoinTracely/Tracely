@@ -21,7 +21,7 @@ restart — except `TRACELY_DATA_DIR`, below, and the boot-time values listed in
 | --- | --- | --- |
 | `SUPABASE_URL` | reading plans | The Supabase project URL, e.g. `https://abcd.supabase.co`. **Setting this and `SUPABASE_ANON_KEY` is what turns enforcement on.** |
 | `SUPABASE_ANON_KEY` | reading plans | The project's anon/publishable key. Used only to call `/auth/v1/user` with the caller's own token. |
-| `SUPABASE_SERVICE_ROLE_KEY` | writing plans | The service role key. Only the webhook uses it, to PATCH `app_metadata`. Never send it to a client. |
+| `SUPABASE_SERVICE_ROLE_KEY` | writing plans | The service role key. Only the webhook uses it, to update `app_metadata` (a `PUT` to `/auth/v1/admin/users/{id}`; a `PATCH` is a 405). Never send it to a client. |
 | `STRIPE_WEBHOOK_SECRET` | webhook | The `whsec_…` signing secret for this endpoint. |
 | `STRIPE_PRICE_STUDENT` | webhook | The Stripe price id sold as the Student plan. |
 | `STRIPE_PRICE_PRO` | webhook | The Stripe price id sold as the Pro plan. |
