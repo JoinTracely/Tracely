@@ -380,6 +380,15 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
     than plain input, so for one-off callers it could cost more. Keep it only
     if the usage lines show it pays. A vendor that refuses the field is
     answered without it (`postOptional`).
+  - **`TRACELY_PROMPT_CACHE_RETENTION=24h`** (off by default, 2026-10-28)
+    sends OpenAI's `prompt_cache_retention: "24h"` on every structured call
+    (`lib/llm.js` `cacheRetention`). A check's instructions are about 1,640
+    tokens, the same every time, and the in-memory cache forgets them within
+    minutes at Tracely's traffic; kept a day, they are read at a tenth of the
+    price. It changes how long a prompt is kept, never what is asked or
+    answered. A model that refuses the field is answered without it, and the
+    field is then off for that model (`withOptional`, around the key's
+    `postOptional`). Judge it on the cost page: the check row's cached share.
 - **The public try-out page (`/try`) is a third product with its own fence**
   (`lib/demo.js`, `demoGate`; DEPLOY.md "The try-out page"): `DEMO_ROUTES`
   (`/api/demo/check|sources|review|status`) sit in NO other set — not

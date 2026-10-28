@@ -327,14 +327,19 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
   const sent = { model: chosen, effort: withEffort ? level : null };
   let json = null;
   try {
-    const build = (e) => (key) => p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: e, cacheKey: key ?? undefined });
+    // Two optional fields, each dropped on its own if the vendor refuses it:
+    // the cache retention (outer) and the caller's cache key (inner).
+    const retention = cacheRetention();
+    const send = (e) => (ret) => postOptional(p, chosen, "prompt_cache_key",
+      (key) => p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: e, cacheKey: key ?? undefined, cacheRetention: ret ?? undefined }),
+      cacheKey, { timeoutMs });
 
     try {
-      json = await postOptional(p, chosen, "prompt_cache_key", build(withEffort ? level : undefined), cacheKey, { timeoutMs });
+      json = await withOptional(p, chosen, "prompt_cache_retention", send(withEffort ? level : undefined), retention);
     } catch (err) {
       if (!withEffort || !p.isEffortError(err)) throw err;
       sent.effort = null;
-      json = await postOptional(p, chosen, "prompt_cache_key", build(undefined), cacheKey, { timeoutMs });
+      json = await withOptional(p, chosen, "prompt_cache_retention", send(undefined), retention);
       // Only now — the same request answered WITHOUT effort — is "this model
       // refuses effort" a fact. It used to be latched before the retry, so a
       // rejection that was about something else (a prompt the vendor refused,
@@ -389,16 +394,35 @@ const webEffortKey = (p, model) => `${effortKey(p, model)}:web_search`;
  * switched off for the model. Optional means a call must never fail over it. */
 const optionalOff = new Set();
 async function postOptional(p, model, field, build, value, opts) {
+  return withOptional(p, model, field, (on) => post(p, build(on), opts), value);
+}
+/* The same rule around any sending function, so one optional field can wrap
+ * a call that carries another (structuredCall: the retention around the key). */
+async function withOptional(p, model, field, send, value) {
   const offKey = `${field}:${effortKey(p, model)}`;
   const on = value && !optionalOff.has(offKey) ? value : null;
   try {
-    return await post(p, build(on), opts);
+    return await send(on);
   } catch (err) {
     if (!on || typeof p.isParamError !== "function" || !p.isParamError(err, field)) throw err;
-    const json = await post(p, build(null), opts);
+    const json = await send(null);
     optionalOff.add(offKey);
     return json;
   }
+}
+
+/* How long the vendor keeps a cached prompt (OpenAI `prompt_cache_retention`,
+ * 2026-10-28, owner: "build the 24-hour cache switch"). OFF unless
+ * TRACELY_PROMPT_CACHE_RETENTION=24h; read per call, so a Railway variable
+ * change applies on its redeploy. A check's instructions are about 1,640
+ * tokens, the same on every call, and the in-memory cache forgets them within
+ * minutes at Tracely's traffic, so most checks paid full price for them.
+ * Kept a day, they are read at a tenth of the price. It changes how long the
+ * prompt is kept, never what is asked or answered; a vendor or model that
+ * refuses the field is answered without it (withOptional). Judge it on the
+ * cost page: the check row's cached share should rise. */
+export function cacheRetention(env = process.env) {
+  return String(env.TRACELY_PROMPT_CACHE_RETENTION ?? "").trim() === "24h" ? "24h" : undefined;
 }
 
 /* The cap on web_search calls per answer (`max_tool_calls`, 2026-10-17). It

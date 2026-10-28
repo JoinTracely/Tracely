@@ -48,7 +48,7 @@ export const openai = {
   // A 400 that names `max_tool_calls` (lib/llm.js retries once without it).
   isToolCapError: (err) => err?.kind === "bad_request" && (/max_tool_calls/i.test(String(err.param ?? "")) || /max_tool_calls/i.test(String(err?.message ?? ""))),
 
-  structuredBody({ model, system, user, schema, maxTokens, name, effort, cacheKey }) {
+  structuredBody({ model, system, user, schema, maxTokens, name, effort, cacheKey, cacheRetention }) {
     const body = {
       model,
       instructions: system,
@@ -60,6 +60,9 @@ export const openai = {
     // Routes the request to where a prompt with the same key was last cached
     // (OpenAI `prompt_cache_key`). Changes where it runs, never what it says.
     if (cacheKey) body.prompt_cache_key = cacheKey;
+    // How long the cached prompt is kept (OpenAI `prompt_cache_retention`,
+    // lib/llm.js cacheRetention). Changes how long, never what it says.
+    if (cacheRetention) body.prompt_cache_retention = cacheRetention;
     return body;
   },
 
