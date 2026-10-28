@@ -22,12 +22,11 @@ if (!KEY) {
 const LIVE = KEY.startsWith("sk_live") || KEY.startsWith("rk_live");
 const MODE = LIVE ? "LIVE" : "TEST";
 
-// What the server and the pricing page agree on. Student is advertised as 50%
-// off $10, so $4.99 is the charge and the $10 is display only — a $10 price
-// would be a real overcharge.
+// What the server and the pricing page agree on: Student $10 and Pro $17.99 a
+// month (owner, 2026-10-27; they were $4.99 and $9.99).
 const WANT = {
-  student: { cents: 499, label: "Student" },
-  pro: { cents: 999, label: "Pro" },
+  student: { cents: 1000, label: "Student" },
+  pro: { cents: 1799, label: "Pro" },
 };
 const WEBHOOK_PATH = "/api/billing/webhook";
 const WANT_EVENTS = [

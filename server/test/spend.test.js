@@ -651,11 +651,15 @@ test("stripe-setup creates two products, not two prices on one", async () => {
   const plans = [...src.matchAll(/product:\s*"([^"]+)"/g)].map((m) => m[1]);
   assert.equal(new Set(plans).size, 2, "expected two distinct product names");
 
-  // Prices must be advertised amounts. $10 is the struck-through "was" price
-  // on the pricing page and must never become a sellable price object.
+  // Prices must be the advertised amounts: Student $10, Pro $17.99 (owner,
+  // 2026-10-27). The check script and the desktop's labels must say the same.
   const cents = [...src.matchAll(/cents:\s*(\d+)/g)].map((m) => Number(m[1]));
-  assert.deepEqual(cents.sort((a, b) => a - b), [499, 999]);
-  assert.ok(!cents.includes(1000), "$10 must not be a price — it is display only");
+  assert.deepEqual(cents.sort((a, b) => a - b), [1000, 1799]);
+  const check = readFileSync(pathMod.join(here, "..", "scripts", "check-stripe-setup.mjs"), "utf8");
+  assert.deepEqual([...check.matchAll(/cents:\s*(\d+)/g)].map((m) => Number(m[1])).sort((a, b) => a - b), [1000, 1799]);
+  const desktop = readFileSync(pathMod.join(here, "..", "..", "src", "shared", "plan.ts"), "utf8");
+  assert.match(desktop, /student: '\$10\/mo'/);
+  assert.match(desktop, /pro: '\$17\.99\/mo'/);
 });
 
 test("stripe-setup never sets tax_behavior on a price", () => {

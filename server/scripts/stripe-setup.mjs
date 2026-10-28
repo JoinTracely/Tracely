@@ -42,16 +42,18 @@ const API_BASE = (() => {
   return b;
 })();
 
-/* The pricing page is the source of truth: Student is advertised at $4.99 with
- * $10 shown struck through, so $4.99 is the charge and $10 must never become a
- * price object. Two SEPARATE products, not two prices on one product — the
+/* The pricing page is the source of truth: Student is $10 a month and Pro
+ * $17.99 (owner, 2026-10-27; they were $4.99 and $9.99). A price is found by
+ * its amount, so a run after a price change creates the new prices and their
+ * Payment Links and leaves the old ones active: archive those in the
+ * dashboard. Two SEPARATE products, not two prices on one product — the
  * customer portal's Switch plan cannot list two prices that share a product
  * and a recurring interval, and Switch plan is what stops a Student who opens
  * the Pro link being billed for both. */
 const PLANS = [
-  { key: "student", product: "Tracely Student", cents: 499, env: "STRIPE_PRICE_STUDENT",
+  { key: "student", product: "Tracely Student", cents: 1000, env: "STRIPE_PRICE_STUDENT",
     blurb: "No daily check limit, 100 source searches a month and auto-sources for one writer." },
-  { key: "pro", product: "Tracely Pro", cents: 999, env: "STRIPE_PRICE_PRO",
+  { key: "pro", product: "Tracely Pro", cents: 1799, env: "STRIPE_PRICE_PRO",
     blurb: "Everything in Student plus Thorough explanations from Tracely's largest model and 250 source searches a month." },
 ];
 const WEBHOOK_URL = "https://api.jointracely.com/api/billing/webhook";
