@@ -44,6 +44,11 @@ downtime, because a volume cannot be attached to two copies at once.
    nothing is spent. It comes out at the switch, when `OPENAI_API_KEY` goes
    in. The daily budgets default to $10 a pool and the try-out's to $2
    (`.env.example`). Set them here only to change them.
+   `TRACELY_PROMPT_CACHE_RETENTION=24h` (optional, off when absent) keeps the
+   check's fixed instructions in OpenAI's prompt cache for a day instead of
+   minutes, so most checks read them at a tenth of the price; nothing it
+   answers changes (server/CLAUDE.md, "What the calls cost"). Watch the
+   check row's cached share on `/admin/costs` after turning it on.
    `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30` gives the old process 30 s between
    Railway's SIGTERM and its kill (about 3 s otherwise, per Railway staff;
    unverified). The server uses 25 of them (`TRACELY_DRAIN_MS`) to finish

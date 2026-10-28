@@ -66,6 +66,45 @@ test("a cache key is sent when given, changes nothing else, and a vendor that re
   assert.equal(refused[2].prompt_cache_key, undefined, "and not sent again to a model that refused it");
 });
 
+test("the 24-hour cache switch: sent only when TRACELY_PROMPT_CACHE_RETENTION=24h, beside the key, and dropped on its own if refused", async () => {
+  const { cacheRetention } = await import("../lib/llm.js");
+  assert.equal(cacheRetention({}), undefined, "off by default");
+  assert.equal(cacheRetention({ TRACELY_PROMPT_CACHE_RETENTION: " 24h " }), "24h");
+  for (const v of ["24", "in_memory", "1h", "yes"]) assert.equal(cacheRetention({ TRACELY_PROMPT_CACHE_RETENTION: v }), undefined, v + " is not a value it sends");
+
+  const call = (extra = {}) => structuredCall({ model: "gpt-5.6-luna", system: "s", user: "u", schema: SCHEMA, maxTokens: 100, what: "t", effort: "low", ...extra });
+  delete process.env.TRACELY_PROMPT_CACHE_RETENTION;
+  const off = stub([answer({ ok: true })]);
+  await call();
+  assert.equal(off[0].prompt_cache_retention, undefined, "absent while the switch is off");
+
+  process.env.TRACELY_PROMPT_CACHE_RETENTION = "24h";
+  try {
+    const on = stub([answer({ ok: true })]);
+    await call({ cacheKey: "tc-1" });
+    await call();
+    assert.equal(on[0].prompt_cache_retention, "24h");
+    assert.equal(on[0].prompt_cache_key, "tc-1", "the key still goes beside it");
+    assert.equal(on[1].prompt_cache_retention, "24h", "on every structured call, keyed or not");
+    const { prompt_cache_retention: _r, ...rest } = on[1];
+    assert.deepEqual(rest, off[0], "the request is otherwise byte-for-byte the same");
+
+    // A model that refuses it: answered without it, then never sent again to that model; the key stays.
+    const refused = stub([
+      () => ({ ok: false, status: 400, json: async () => ({ error: { message: "Unknown parameter: 'prompt_cache_retention'.", param: "prompt_cache_retention" } }) }),
+      answer({ ok: true }),
+    ]);
+    const r = await structuredCall({ model: "gpt-5.6-luna", system: "s", user: "u", schema: SCHEMA, maxTokens: 100, what: "t", effort: "low", cacheKey: "tc-2" });
+    assert.deepEqual(r.parsed, { ok: true }, "the call still answers");
+    assert.equal(refused[1].prompt_cache_retention, undefined, "retried without the retention");
+    assert.equal(refused[1].prompt_cache_key, "tc-2", "and still with the key");
+    await structuredCall({ model: "gpt-5.6-luna", system: "s", user: "u", schema: SCHEMA, maxTokens: 100, what: "t", effort: "low", cacheKey: "tc-2" });
+    assert.equal(refused[2].prompt_cache_retention, undefined, "and not sent again to a model that refused it");
+  } finally {
+    delete process.env.TRACELY_PROMPT_CACHE_RETENTION;
+  }
+});
+
 test("every shard of a check carries the caller's key", async () => {
   const sent = stub([(body) => {
     const ids = [...String(body.input).matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]);
