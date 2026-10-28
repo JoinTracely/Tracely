@@ -453,8 +453,14 @@ What bounds it, in the order `demoGate` checks:
   number (`0`, `off`, `-1`): `503 demo_closed`, and the server logs which at
   boot. Never a per-boot random secret — a restart would hand every visitor a
   new allowance.
+- **The website's own pages** (jointracely.com, www and new.jointracely.com,
+  `SITE_ORIGINS` in lib/demo.js; `TRACELY_SITE_ORIGINS` adds more,
+  comma-separated, e.g. a local preview) call the same demo routes from the
+  page, with credentialed CORS and the same fence as `TRACELY_PUBLIC_ORIGIN`:
+  the demo routes and nothing else of the API. Since 2026-10-27.
 - **The visitor cookie** `tracely_demo` (HttpOnly, Secure, SameSite=Lax, a
-  day), minted by `GET /try`, HMAC-signed with the secret. Missing or forged:
+  day), minted by `GET /try`, or by a website page's first
+  `GET /api/demo/status`, HMAC-signed with the secret. Missing or forged:
   `403 demo_session`. Rotating the secret invalidates every cookie; the page
   mints a new one on reload.
 - **The free plan**, enforced even though the caller is anonymous: the fast

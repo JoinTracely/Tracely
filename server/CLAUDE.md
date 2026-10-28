@@ -391,7 +391,11 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   calls in flight, 503 `demo_busy`) — never fall back to another pool.
   `TRACELY_PUBLIC_ORIGIN`
   reaches the demo routes and static files only (decided before the self-origin
-  pass); never add it to `SELF_ORIGINS`. The caller is always the free plan,
+  pass); never add it to `SELF_ORIGINS`. The website's own pages
+  (`demoSiteOrigins`: jointracely.com, www, new., plus `TRACELY_SITE_ORIGINS`)
+  are held to the same fence and get their own credentialed CORS answer
+  (`siteCorsHeaders`), never the extension's; their first `/api/demo/status`
+  mints the visitor cookie (2026-10-27). The caller is always the free plan,
   enforced; never call `withBetaGrant` for it. `test/demo.test.js` pins all of
   this. `/ext-content.js` (the engine `/try` runs) must be copied on every
   deploy.

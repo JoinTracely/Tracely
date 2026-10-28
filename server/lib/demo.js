@@ -71,6 +71,20 @@ export function demoPublicOrigin(env = process.env) {
   return /^https?:\/\/[^/\s]+$/i.test(v) ? v : null;
 }
 
+/* The website's own pages call the try-out's routes too (owner, 2026-10-27:
+ * the paste box and the tools on jointracely.com check for real). They are
+ * held to the demo routes exactly like TRACELY_PUBLIC_ORIGIN, and answered
+ * with credentialed CORS, because the visitor cookie is api.jointracely.com's.
+ * The site and the API are one site (jointracely.com), so that cookie is
+ * first-party and SameSite=Lax still sends it. TRACELY_SITE_ORIGINS adds more,
+ * comma-separated (a local preview of the website). Never a self origin. */
+export const SITE_ORIGINS = Object.freeze(["https://jointracely.com", "https://www.jointracely.com", "https://new.jointracely.com"]);
+export function demoSiteOrigins(env = process.env) {
+  const extra = String(env.TRACELY_SITE_ORIGINS ?? "").split(",")
+    .map((v) => v.trim().replace(/\/+$/, "")).filter((v) => /^https?:\/\/[^/\s]+$/i.test(v));
+  return new Set([...SITE_ORIGINS, ...extra]);
+}
+
 // ── the visitor cookie ──────────────────────────────────────────────────
 const mac = (secret, id) => createHmac("sha256", secret).update(`tracely-demo.${id}`, "utf8").digest();
 

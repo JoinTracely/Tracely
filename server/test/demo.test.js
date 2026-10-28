@@ -158,7 +158,7 @@ globalThis.fetch = async (url, init = {}) => {
 // Nothing from a developer's shell may change these servers' behaviour.
 const SCRUB = ["TRACELY_BETA_TOKENS", "TRACELY_BETA_DAILY_BUDGET_USD", "TRACELY_DAILY_BUDGET_USD", "TRACELY_APP_DAILY_BUDGET_USD", "TRACELY_PAID_DAILY_BUDGET_USD",
   "SUPABASE_URL", "SUPABASE_ANON_KEY", "OPENAI_API_KEY", "TRACELY_MOCK", "TRACELY_EXTENSION_ID", "TRACELY_TRUSTED_PROXY_HOPS", "TRACELY_LLM_PROVIDER",
-  "TRACELY_DEMO_SECRET", "TRACELY_PUBLIC_ORIGIN", "TRACELY_DEMO_DAILY_BUDGET_USD", "TRACELY_DEMO_CHECKS", "TRACELY_DEMO_SOURCES", "TRACELY_DEMO_REVIEWS"];
+  "TRACELY_DEMO_SECRET", "TRACELY_PUBLIC_ORIGIN", "TRACELY_SITE_ORIGINS", "TRACELY_DEMO_DAILY_BUDGET_USD", "TRACELY_DEMO_CHECKS", "TRACELY_DEMO_SOURCES", "TRACELY_DEMO_REVIEWS"];
 const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !SCRUB.includes(k)));
 
 // A port the OS just handed out (beta-grant.test.js explains why not a range).
@@ -340,7 +340,7 @@ test("the public origin reaches the demo routes and the page — and nothing els
 
 test("no other origin reaches the demo routes: not the extension, not Docs, not a stranger", async () => {
   const v = visitor();
-  for (const origin of ["chrome-extension://dffmoeebkkghhgcklkbmaibfhgiegmdm", "https://docs.google.com", "https://www.jointracely.com", "https://evil.example"]) {
+  for (const origin of ["chrome-extension://dffmoeebkkghhgcklkbmaibfhgiegmdm", "https://docs.google.com", "https://evil.example", "https://jointracely.com.evil.example", "http://new.jointracely.com"]) {
     const r = await demoCheck(ON, v, { headers: { Origin: origin } });
     assert.equal(r.status, 403, origin);
     assert.equal(errorOf(r).kind, "forbidden");
@@ -356,6 +356,66 @@ test("where the public origin is also the server's own (a local run), the public
   assert.equal((await call(LOCAL, "GET", "/api/documents", { headers: self })).status, 403);
   const other = { Origin: `http://localhost:${LOCAL.port}` };
   assert.equal((await call(LOCAL, "POST", "/api/check", { body: checkBody(), headers: other })).status, 200, "the other self origin is untouched");
+});
+
+// ── the website's pages ──────────────────────────────────────────────────
+
+const SITE = ["https://jointracely.com", "https://www.jointracely.com", "https://new.jointracely.com"];
+
+test("the website's pages reach the demo routes with credentialed CORS — and nothing else of the API", async () => {
+  const v = visitor();
+  for (const origin of SITE) {
+    const r = await demoCheck(ON, v, { headers: { Origin: origin } });
+    assert.equal(r.status, 200, origin);
+    assert.equal(r.headers.get("access-control-allow-origin"), origin);
+    assert.equal(r.headers.get("access-control-allow-credentials"), "true", "the visitor cookie must travel");
+  }
+  const pre = await call(ON, "OPTIONS", "/api/demo/sources", { headers: { Origin: SITE[2], "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type" } });
+  assert.equal(pre.status, 204);
+  assert.equal(pre.headers.get("access-control-allow-origin"), SITE[2]);
+  assert.equal(pre.headers.get("access-control-allow-credentials"), "true");
+  assert.equal(pre.headers.get("access-control-allow-headers"), "Content-Type", "nothing the website doesn't send");
+  for (const [method, p, body] of [["POST", "/api/check", checkBody()], ["POST", "/api/sources", { claim: SENTENCE }], ["POST", "/api/review", { text: SENTENCE }],
+    ["GET", "/api/documents"], ["GET", "/api/entitlement"], ["GET", "/api/status"], ["POST", "/api/cite-url", { url: "https://example.org" }]]) {
+    const r = await call(ON, method, p, { body, headers: { Origin: SITE[1] }, cookie: v });
+    assert.equal(r.status, 403, `${method} ${p} from the website`);
+    assert.equal(errorOf(r).message, "Origin not allowed for this endpoint");
+    assert.equal(r.headers.get("access-control-allow-origin"), null, "the browser must not see the refusal");
+  }
+  // The extension's own answer is untouched: no credentials, its four headers.
+  const ext = await call(ON, "OPTIONS", "/api/check", { headers: { Origin: "chrome-extension://pkaihmliboboiafoodfaoflflcpipcnd", "Access-Control-Request-Method": "POST" } });
+  assert.equal(ext.headers.get("access-control-allow-credentials"), null);
+  assert.equal(ext.headers.get("access-control-allow-headers"), "Content-Type, Authorization, X-Tracely-Install, X-Tracely-Beta");
+});
+
+test("a website page's first status read mints the cookie the demo routes accept; nobody else's does", async () => {
+  const first = await demoStatus(ON, undefined, { headers: { Origin: SITE[2] } });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.left.check, 10, "the status of the visitor just minted");
+  const set = first.headers.get("set-cookie") ?? "";
+  assert.match(set, /^tracely_demo=[^;]+; Path=\/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax$/);
+  const value = /^tracely_demo=([^;]+)/.exec(set)[1];
+  assert.equal((await demoCheck(ON, value, { headers: { Origin: SITE[2] } })).status, 200);
+  const again = await demoStatus(ON, value, { headers: { Origin: SITE[2] } });
+  assert.equal(again.body.left.check, 9, "the same visitor, counted");
+  assert.equal(again.headers.get("set-cookie"), null, "a valid cookie is never replaced");
+  const forged = await demoStatus(ON, "junk", { headers: { Origin: SITE[0] } });
+  assert.equal(forged.status, 200, "a forged cookie is replaced, as /try does");
+  assert.ok(forged.headers.get("set-cookie"));
+  for (const origin of [undefined, PUBLIC, "https://evil.example"]) {
+    const r = await demoStatus(ON, undefined, { headers: origin ? { Origin: origin } : {} });
+    assert.equal(r.headers.get("set-cookie"), null, `no cookie for ${origin ?? "no origin"}`);
+    assert.equal(r.status, 403);
+  }
+  const off = await demoStatus(OFF, undefined, { headers: { Origin: SITE[2] } });
+  assert.equal(off.body.open, false);
+  assert.equal(off.headers.get("set-cookie"), null, "the try-out off mints nothing");
+});
+
+test("TRACELY_SITE_ORIGINS adds origins to the website's three; anything that isn't an origin is dropped", () => {
+  const got = demo.demoSiteOrigins({ TRACELY_SITE_ORIGINS: " http://localhost:5302/ , junk, https://a.test/path, https://preview.test" });
+  assert.deepEqual([...got].sort(), [...SITE, "http://localhost:5302", "https://preview.test"].sort());
+  assert.deepEqual([...demo.demoSiteOrigins({})].sort(), [...SITE].sort());
 });
 
 // ── what a visitor gets ──────────────────────────────────────────────────
