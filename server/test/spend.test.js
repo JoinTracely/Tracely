@@ -594,6 +594,32 @@ test("orderUrl degrades to a bare link when signed out rather than sending uid=n
   assert.equal(orderUrl("a b/c"), `${ORDER_URL}?uid=a%20b%2Fc`);
 });
 
+test("a paid account's Get Pro opens the subscription page, never a second checkout", () => {
+  // A Payment Link always starts a NEW subscription: a Student sent to the
+  // order page for Pro would be billed for both (found 2026-10-29, before the
+  // live checkout opened). The worker sends Student and Pro to Stripe's
+  // portal, where the one subscription changes plan; a test build's Pro grant
+  // is not a subscription and still gets the order page.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const extDir = [path.join(here, "..", "extension"), path.join(here, "..", "..", "extension")]
+    .find((d) => { try { fsReadFileSync(path.join(d, "background.js")); return true; } catch { return false; } });
+  const bg = fsReadFileSync(path.join(extDir, "background.js"), "utf8");
+  const opts = fsReadFileSync(path.join(extDir, "options.js"), "utf8");
+  const portalOf = (src) => src.match(/const PORTAL_URL = "([^"]*)";/)?.[1];
+  assert.equal(portalOf(bg), portalOf(opts), "background.js and options.js must name the same portal");
+  assert.match(portalOf(opts), /^https:\/\/billing\.stripe\.com\/p\/login\/\w+$/);
+  assert.ok(!portalOf(opts).includes("5kQ3cv2Sy5gw4XY49P4gg00"), "not the previous owner's portal");
+
+  const handler = bg.slice(bg.indexOf('msg?.type === "tracely-open-order"'));
+  const toPortal = handler.indexOf("portalUrl(ent.email)");
+  assert.ok(toPortal > 0 && toPortal < handler.indexOf("orderUrl(ent?.userId)"), "the portal is decided before the order page");
+  assert.match(handler.slice(0, toPortal), /\(ent\?\.plan === "student" \|\| ent\?\.plan === "pro"\) && !ent\?\.beta/);
+
+  const portalUrl = new Function(`${bg.match(/const PORTAL_URL = "[^"]*";/)[0]}\n${bg.match(/function portalUrl\(email\) \{[\s\S]*?\n\}/)[0]}\nreturn portalUrl;`)();
+  assert.equal(portalUrl("kid+1@example.com"), `${portalOf(bg)}?prefilled_email=kid%2B1%40example.com`);
+  assert.equal(portalUrl(null), portalOf(bg));
+});
+
 // ── the cancellation path ────────────────────────────────────────────────
 
 test("a paying subscriber is never sent to the pricing page to cancel", async () => {

@@ -51,8 +51,13 @@ const ORDER_URL = "https://jointracely.com/order";
    networks also expect a subscription business to offer a cancellation path.
 
    Empty is handled honestly below rather than silently: the link becomes an
-   email to support instead of pretending to be self-service. */
-const PORTAL_URL = "https://billing.stripe.com/p/login/5kQ3cv2Sy5gw4XY49P4gg00";
+   email to support instead of pretending to be self-service.
+
+   Tracely's own Stripe account since 2.21.81 (2026-10-29); the link before it
+   was the previous owner's portal, which holds none of Tracely's subscribers.
+   background.js carries the same link for the widgets' Get Pro, and the
+   website's assets/site/auth.js its own copy. */
+const PORTAL_URL = "https://billing.stripe.com/p/login/00wdR96Xm7Co4sF2lLbsc00";
 const SUPPORT_EMAIL = "info@jointracely.com";
 const $ = (id) => document.getElementById(id);
 
@@ -737,6 +742,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.81", "Manage subscription opens Tracely's subscription page, where you can change your card, switch plans or cancel. On Student, Get Pro switches your plan there, so you're never billed for two plans."],
   ["2.21.80", "Settings say Pause for an hour and Match my document, the same words as jointracely.com."],
   ["2.21.79", "Dismissing a sentence's card now dismisses the notes on that sentence too, so a claim you dismissed no longer comes back underlined in another colour. Suggest fix works on sources that disagree with your sentence."],
   ["2.21.78", "The preview of a fix no longer covers the lines below it with a white box. And a card you moved on from, say to Suggest fix, opens at its start again the next time you hover."],
