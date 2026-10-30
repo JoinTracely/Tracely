@@ -310,8 +310,9 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
         day with no key, 1,000 with `OPENALEX_API_KEY`.
       - **`brave`:** with `BRAVE_SEARCH_API_KEY`, Brave's web results ($5 per
         1,000) and OpenAlex's papers, asked at once (`find`).
-      - **What is searched:** the sentence, with its citation taken out
-        (`searchQueryFor`).
+      - **What is searched:** the sentence, with its citation taken out but
+        for an organisation's name or a standard's number (`searchQueryFor`,
+        `citedNames`, `standardIds`).
       - **Which papers:** only ones `lexicalRelevance` puts above the local
         evidence search's floor, the best three, each by its DOI so the
         reader finds the abstract (`openAlexCandidates`).
