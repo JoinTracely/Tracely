@@ -122,7 +122,9 @@ have the extension installed, it stays out of the way on that page.
 **Signing in.** "Sign in" opens Google's sign-in through **Supabase**, our
 account provider. We receive your email address and an account id; we do not
 receive your Google password. A session token is kept in the extension's
-storage on your device until you sign out.
+storage on your device until you sign out. Signing in on the website keeps its
+own session token in that browser's storage for jointracely.com, until you sign
+out in the website's Settings.
 
 **Paying.** Plans are bought on **Stripe**'s hosted checkout at
 jointracely.com. Your card details go to Stripe and never to us. Stripe tells
@@ -132,9 +134,12 @@ in, the purchase waits until an account with that email signs in.
 
 **The website.** jointracely.com loads its typeface from Google Fonts, so
 Google receives your IP address and browser details when a page loads. Signing
-in on the order page uses the same Google sign-in through Supabase as the
+in on the website uses the same Google sign-in through Supabase as the
 extension, and buying a plan opens Stripe's checkout with your account id, so
-the purchase reaches your account. The website sets no advertising or
+the purchase reaches your account. The website's Fact check and Find sources
+send the text you give them to our server: signed out, as the try-out page
+does (above); signed in, on your account's plan, the way the extension's
+checks do. The website sets no advertising or
 analytics cookies.
 
 **Every request** to our server carries a random install id, generated once
