@@ -415,8 +415,16 @@ export function dailyKindLimit(plan) {
  * If this ever needs raising, the number to recompute, at its upper bound, is
  * (0.39 cents + (limit - 1) x 0.104 cents) x expected capped users per day,
  * against the global budget in shared/guards.js.
+ *
+ * Lowered to 150 on 2026-10-29 (owner, before launch: "yes lower it to 150").
+ * Free users share the one $10/day extension pool, and at 400 only ~24-44
+ * users at the cap emptied it for everyone. At 150 a capped user costs at
+ * most 0.39 + 149 x 0.104 = ~16 cents a day (~13 on the even mix), so the
+ * pool covers ~63-76 of them. At the extension's fastest (one check per 10s),
+ * 150 is about 25 minutes of nonstop editing; how many checks a normal
+ * writing session sends is not measured.
  */
-export const FREE_DAILY_CHECKS = 400;
+export const FREE_DAILY_CHECKS = 150;
 
 /* The desktop app's AI calls — detect, critique, grade, structure, tracer,
  * correction — on the free tier. 150 is the relay's number, carried over so a

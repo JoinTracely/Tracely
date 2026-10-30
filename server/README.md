@@ -67,7 +67,7 @@ placeholder) and `GOOGLE_DOCS_BRIDGE_URL` is only an optional, legacy path.
 ## Accounts and plans (optional)
 
 The server can enforce paid plans — clamping the model a call may use and
-metering the free tier (5 source searches and 400 extension checks a day,
+metering the free tier (5 source searches and 150 extension checks a day,
 150 desktop AI calls a day) — and accept Stripe webhooks
 that set a plan on the account. It needs `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STUDENT`

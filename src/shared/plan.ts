@@ -227,7 +227,7 @@ export const PLAN_PRICE: Record<Plan, string> = {
  * the server meters (server/shared/plan.js SOURCE_LIMITS, FREE_DAILY_CHECKS,
  * FREE_DAILY_AI_CALLS), pinned by server/test/mirror-contracts.test.js. */
 export const PLAN_INCLUDES: Record<Plan, readonly string[]> = {
-  free: ['The most accurate checker in our tests', '400 checks and 150 AI actions a day', '5 source searches a day (40 a month)'],
+  free: ['The most accurate checker in our tests', '150 checks and 150 AI actions a day', '5 source searches a day (40 a month)'],
   student: ['Everything in Free', 'No daily check or AI-action limit (fair use)', '100 source searches a month'],
   pro: [
     'Everything in Student',

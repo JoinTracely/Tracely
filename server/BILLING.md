@@ -52,7 +52,7 @@ routes, where they only choose Thorough over Standard.
 
 | Plan | Checks | AI actions (desktop) | Source searches (extension + desktop, one count) | Thorough model | Fair-use limit |
 | --- | --- | --- | --- | --- | --- |
-| `free` | 400 a day | 150 a day | 5 a day, 40 a month | — | — (it has quotas) |
+| `free` | 150 a day (400 until 2026-10-29) | 150 a day | 5 a day, 40 a month | — | — (it has quotas) |
 | `student` | no daily limit | no daily limit | 20 a day, 100 a month | — | $0.75 a day, $2.50 a month |
 | `pro` | no daily limit | no daily limit | 40 a day, 250 a month | $1.50/month allowance | $1.50 a day, $5 a month (includes the allowance; lowered from $2/$8 on 2026-10-22) |
 
@@ -275,10 +275,11 @@ tier (`eval/models/FINDINGS.md`); dropping it buys that much runway for the
 feature people actually notice missing. Below 20% remaining, `/api/sources`
 answers 503 and checking continues. At 0%, everything answers 503.
 
-**2. Per-caller quotas.** Free callers get `FREE_DAILY_CHECKS` (400) a day on
-the extension's routes and `FREE_DAILY_AI_CALLS` (150) on the desktop's. 400
-checks is about an hour of continuous typing and costs at most ~35 cents
-cold. Source searches are metered on EVERY plan, per day and per month
+**2. Per-caller quotas.** Free callers get `FREE_DAILY_CHECKS` (150 since
+2026-10-29, was 400) a day on the extension's routes and `FREE_DAILY_AI_CALLS`
+(150) on the desktop's. 150 checks is about 25 minutes of nonstop editing at
+the extension's fastest and costs at most ~16 cents cold, so the $10/day
+extension pool covers ~63-76 free users at the cap (at 400: ~24-44). Source searches are metered on EVERY plan, per day and per month
 (`SOURCE_LIMITS`: 5/40 Free, 20/100 Student, 40/250 Pro), one count shared by
 `/api/sources` and `/api/find-sources`; flow checks per day (`DAILY_FLOW`).
 The extension's own lookups (`/api/sources` with `verify: true`: a claim
