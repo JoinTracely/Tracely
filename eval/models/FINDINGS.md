@@ -53,6 +53,53 @@ on subtle claims; retired ids from old builds are translated to their tier
 (`usage.input_tokens_details.cache_write_tokens`, 1.25x input on all three
 models); the free check cap stays 400.
 
+## 2026-10-30: the source judge's "contradicts" needs the same scope
+
+Why: a lookup called "the global matcha market will grow from $5.5 billion
+in 2026 to $8.9 billion in 2033 (Grand View Research)" a False claim. It
+judged Grand View Research's separate Matcha Tea Market report ($1.03 billion,
+then $1.75 billion) as contradicting it. The Matcha Market report states the
+sentence's figures; both pages are readable by the server (checked
+2026-10-30). `VERIFY_SYSTEM` listed "a different figure" as a contradiction
+without asking what the figure was about. A second fault was free to find:
+`claimFigures.js` read "USD 5.5 billion" as a count, not money, so even the
+right report's receipt could never have shown "$5.5 billion".
+
+What changed (`server/lib/sourceVerify.js`, `claimFigures.js`, `searchApi.js`):
+
+- **The same judge call**, no new call. Each verdict carries `scope`
+  ("same", "different", "unsure"): whether the deciding excerpt is about the
+  same entity, definition, measure, place and period as the claim. A
+  `contradicts` stands only on "same"; otherwise it is "topic" (`applyVerdicts`,
+  tallied `scope=` on both routes' log lines). The prompt says what a
+  different scope is (the matcha tea market is not the matcha market, a city
+  is not its metro area, teens are not adults, revenue is not profit, 2030 is
+  not 2033), that several figures are judged one by one, and that another
+  report from the cited publisher is not the cited work. `backs` is
+  untouched: #327 showed what a stricter judge did to good backs.
+- **USD is the dollar sign** for the figure rule ("USD 5.5 billion", "US$5.5
+  billion", "5.5 billion USD"). `node eval/goldset/figures.mjs` before and
+  after: identical on all three recorded sets (the rule keeps 46 of live's 48
+  backs, 13 of 13, and 17 of 22).
+- **The cited organisation's page goes first** in the cheaper search's pass
+  (`strongFirst`, `citedNames`, matched by its address), within the same
+  eight, and `searchQueryFor` keeps an organisation's name when it drops a
+  citation's year ("(Grand View Research, 2026)" leaves "Grand View
+  Research"). Unmeasured: no recorded lookup set exercises it.
+
+Cost: the prompt and schema grow by about 1,400 characters (~350 tokens) of
+input and the answer by about 5 tokens a source, about 0.012 cent a judge call
+at luna's prices ($0.20 and $1.20 a million), against a lookup's 1.7 to 2.7
+cents. No call, search or page read is added.
+
+**To measure after it deploys** (the verifier eval runs against production;
+no key is on the owner's machine): `node eval/goldset/run-verify-prod.mjs
+eval/goldset/judged/2026-10-09-extension-prod.json
+eval/goldset/runs/<date>-verify-prod-on-1009.json`, and the same for
+2026-10-07 (about 5 cents each). Compare with the 2026-10-10 runs: its 48
+backs (34 the judges agree with) must hold, and its contradicts should only
+fall. Revert if backs drop.
+
 ## 2026-10-07: source receipts — what the verify call reads, and what it costs
 
 Why: three independent judges labelled 120 recorded sentence→source pairs;

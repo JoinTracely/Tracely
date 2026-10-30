@@ -13,7 +13,7 @@ import {
 import { citeFields, SOURCE_KINDS } from "./citeFields.js";
 import { isNarrowing } from "../shared/narrowing.js";
 import { trimSentence } from "./claimTrim.js";
-import { searchProvider, searchQueryFor, candidateResults, strongFirst } from "./searchApi.js";
+import { searchProvider, searchQueryFor, candidateResults, strongFirst, citedNames } from "./searchApi.js";
 
 // Re-exported so every existing importer (server.js, tests) is unaffected by
 // CheckError having moved into its own module to break an import cycle.
@@ -566,7 +566,7 @@ async function judgeSources(merged, { claim, correction = null, context = null, 
     for (let i = merged.length - 1; i >= 0; i--) if (gone.has(merged[i])) merged.splice(i, 1);
     const retracted = (retractedByRecord ?? 0) + gone.size;
     return { sources: merged, usage: verified.usage ?? null, enriched, dropped, retracted,
-      verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, figures: verified.figures ?? 0, partial: verified.partial ?? 0, unread: verified.unread ?? 0 },
+      verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, figures: verified.figures ?? 0, scope: verified.scope ?? 0, partial: verified.partial ?? 0, unread: verified.unread ?? 0 },
       stages: { complete, read: verified.stages?.read ?? 0, judge: verified.stages?.judge ?? 0, trim: verified.stages?.trim ?? 0 }, reads: verified.reads ?? {},
       pages: { fetched: pages?.counts.fetched ?? 0, reads: pages?.counts.reads ?? 0 } };
   } finally {
@@ -608,7 +608,7 @@ export async function cheapFirst({ claim, model, provider, judge, full, tell = (
   } catch {
     found = null;
   }
-  const ranked = found ? strongFirst(candidateResults(found.results, 20), CHEAP_MAX) : null;
+  const ranked = found ? strongFirst(candidateResults(found.results, 20), CHEAP_MAX, citedNames(claim)) : null;
   const results = ranked?.picked ?? null;
   const charged = Math.max(0, Number(found?.microCents) || 0);
   // How many strong and unvetted candidates there were, and how many were judged: the log line's `picked=`.

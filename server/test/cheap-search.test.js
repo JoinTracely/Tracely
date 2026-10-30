@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PROVIDERS, searchProvider, searchQueryFor, candidateResults, openAlexCandidates, strongFirst } from "../lib/searchApi.js";
+import { PROVIDERS, searchProvider, searchQueryFor, candidateResults, openAlexCandidates, strongFirst, citedNames } from "../lib/searchApi.js";
 import { cheapFirst, findSources } from "../lib/factcheck.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -299,4 +299,59 @@ test("wiring: the route charges the provider's fee and no web_search fee for a c
   assert.match(src, /if \(\(route !== "\/api\/sources" && route !== "\/api\/sources\/stream"\) \|\| !searchProvider\(\)\) return base;/, "the reservation grows only with a provider set");
   const spend = readFileSync(path.join(HERE, "..", "lib", "spend.js"), "utf8");
   assert.match(spend, /costMicroCents\(model, usage, \{ webSearchCalls \}\) \+ Math\.max\(0, Math\.round\(Number\(extraMicroCents\) \|\| 0\)\)/);
+});
+
+/* ── the report the sentence cites (owner, 2026-10-30) ──
+ * A lookup judged Grand View Research's Matcha Tea Market report for a
+ * sentence citing its Matcha Market report. The cited organisation's own
+ * pages are judged first, and its name stays in the query. */
+const MATCHA = "The global matcha market will grow from $5.5 billion in 2026 to $8.9 billion in 2033 (Grand View Research, 2026).";
+test("citedNames: organisations a sentence cites, never a surname, a pair of authors or an acronym", () => {
+  assert.deepEqual(citedNames(MATCHA), ["Grand View Research"]);
+  assert.deepEqual(citedNames("Teens sleep less than adults (Pew Research Center; Smith, 2020)."), ["Pew Research Center"]);
+  assert.deepEqual(citedNames("According to the World Bank, 700 million people live in extreme poverty."), ["World Bank"]);
+  assert.deepEqual(citedNames("Unemployment fell to 3.5% (Bureau of Labor Statistics, 2023)."), ["Bureau of Labor Statistics"]);
+  assert.deepEqual(citedNames("The report said half of teens were tired (Smith and Lee, 2019; WHO, n.d.; Jones et al., 2021; Fitzgerald 45)."), []);
+});
+
+test("searchQueryFor keeps the cited organisation's name when it drops the citation", () => {
+  assert.equal(searchQueryFor(MATCHA), "The global matcha market will grow from $5.5 billion in 2026 to $8.9 billion in 2033 Grand View Research .");
+  assert.equal(searchQueryFor("Teens are tired (Smith and Lee, 2019)."), "Teens are tired .", "a surname still goes");
+});
+
+test("strongFirst: the cited organisation's pages go first and are never left unjudged, within the same eight", () => {
+  const tea = { url: "https://www.grandviewresearch.com/industry-analysis/matcha-tea-market", title: "Matcha Tea Market Size Report, 2033", origin: "brave" };
+  const all = { url: "https://www.grandviewresearch.com/industry-analysis/matcha-market", title: "Matcha Market Size Report, 2033", origin: "brave" };
+  const strong = [
+    { url: "https://www.cdc.gov/a", title: "CDC", origin: "brave" },
+    { url: "https://www.nih.gov/b", title: "NIH", origin: "brave" },
+    { url: "https://www.reuters.com/c", title: "Reuters", origin: "brave" },
+  ];
+  const blog = { url: "https://matchablog.example/post", title: "Matcha market news", origin: "brave" };
+  // Three strong ones would leave every unvetted page unjudged; the cited publisher's are judged first anyway.
+  let r = strongFirst([tea, ...strong, blog, all], 8, citedNames(MATCHA));
+  assert.deepEqual(r.picked.map((x) => x.title), ["Matcha Tea Market Size Report, 2033", "Matcha Market Size Report, 2033", "CDC", "NIH", "Reuters"]);
+  assert.deepEqual([r.strong, r.weak], [3, 3], "the log line's counts are as before");
+  // No organisation cited: exactly as before.
+  r = strongFirst([tea, ...strong, blog, all], 8, citedNames("The global matcha market will reach $8.9 billion in 2033."));
+  assert.deepEqual(r.picked.map((x) => x.title), ["CDC", "NIH", "Reuters"]);
+  assert.equal(strongFirst(Array.from({ length: 12 }, (_, i) => ({ url: `https://grandviewresearch.com/${i}`, title: `${i}` })), 8, ["Grand View Research"]).picked.length, 8, "never more than eight");
+  // Matched by address, never by a title that only mentions the name.
+  r = strongFirst([...strong, { url: "https://news.example/gvr", title: "Grand View Research says matcha is booming" }], 8, ["Grand View Research"]);
+  assert.deepEqual(r.picked.map((x) => x.title), ["CDC", "NIH", "Reuters"]);
+});
+
+test("in the pass: a sentence citing Grand View Research has its pages judged first", async () => {
+  const list = [
+    { url: "https://www.cdc.gov/a", title: "CDC", origin: "brave" },
+    { url: "https://www.nih.gov/b", title: "NIH", origin: "brave" },
+    { url: "https://www.reuters.com/c", title: "Reuters", origin: "brave" },
+    { url: "https://www.grandviewresearch.com/industry-analysis/matcha-market", title: "Matcha Market", origin: "brave" },
+  ];
+  let judged = null;
+  const r = await cheapFirst({ claim: MATCHA, model: "gpt-5.6-luna", provider: provider(list),
+    judge: async (merged) => { judged = merged.map((s) => s.url); return { sources: merged.map((s) => read(s.url, s.url.includes("grandviewresearch") ? "supports" : "context")), usage: null, stages: {} }; },
+    full: async () => { throw new Error("not reached"); } });
+  assert.equal(judged[0], "https://www.grandviewresearch.com/industry-analysis/matcha-market");
+  assert.equal(r.via, "cheap");
 });

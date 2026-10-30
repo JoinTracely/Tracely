@@ -105,12 +105,49 @@ export async function openAlexCandidates(q, claim, { apiKey = "" } = {}) {
  * so a sentence only a smaller site states is still found cheaply. Nothing
  * shown is dropped: the extension labels and ranks whatever is returned. */
 const ENOUGH_STRONG = 3;
-export function strongFirst(results, max = 8) {
+export function strongFirst(results, max = 8, cited = []) {
   const list = Array.isArray(results) ? results : [];
   const strong = list.filter((r) => credibilityOf({ url: r.url, doi: r.doi, venueType: r.venueType }).tier !== "unvetted");
   const weak = list.filter((r) => !strong.includes(r));
-  const picked = (strong.length >= ENOUGH_STRONG ? strong : [...strong, ...weak]).slice(0, max);
+  const usual = strong.length >= ENOUGH_STRONG ? strong : [...strong, ...weak];
+  // The publisher the sentence cites goes first, and is never left unjudged (citedNames).
+  const theirs = list.filter((r) => fromCited(r, cited));
+  const picked = [...theirs, ...usual.filter((r) => !theirs.includes(r))].slice(0, max);
   return { picked, strong: strong.length, weak: weak.length };
+}
+
+/* The organisations a sentence cites by name (owner, 2026-10-30, after a
+ * lookup judged Grand View Research's Matcha Tea Market report for a sentence
+ * citing its Matcha Market report): "(Grand View Research, 2026)", "(Pew
+ * Research Center)", "according to the World Bank". Two or more capitalised
+ * words, so a surname — "(Smith, 2020)", "(Smith and Lee, 2019)" — and an
+ * acronym are not one. strongFirst judges their pages first (fromCited),
+ * within the same limit of eight; searchQueryFor
+ * keeps the name in the query when it drops the citation's year. */
+const ORG_NAME = /^(?:the\s+)?([\p{Lu}][\p{L}'’.-]*(?:\s+(?:of|for|on|the|[\p{Lu}][\p{L}'’.-]*))*\s+[\p{Lu}][\p{L}'’.-]*)$/u;
+export function citedNames(claim) {
+  const s = String(claim ?? "");
+  const out = [];
+  const keep = (raw) => {
+    const name = String(raw ?? "").trim().replace(/[.,;:]+$/, "");
+    const m = name.match(ORG_NAME);
+    if (m && !/\bet al\b|\s(?:and|&)\s/i.test(name) && !out.includes(m[1])) out.push(m[1]);
+  };
+  for (const m of s.matchAll(/\(([^()]{3,160})\)/g)) {
+    for (const part of m[1].split(";")) keep(part.split(/,|\s(?:1[5-9]\d\d|20\d\d)\b|\bn\.\s?d\./)[0]);
+  }
+  for (const m of s.matchAll(/\b[Aa]ccording to (?:the\s+)?((?:[\p{Lu}][\p{L}'’.-]*\s*){2,6})/gu)) keep(m[1]);
+  return out;
+}
+// A result is the cited organisation's own page when its address spells the
+// name: grandviewresearch.com for Grand View Research, pewresearch.org for Pew
+// Research Center. Never by its title, which names whatever the page is about.
+const squash = (s) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+function fromCited(r, names) {
+  if (!Array.isArray(names) || !names.length) return false;
+  let labels = [];
+  try { labels = new URL(String(r?.url ?? "")).hostname.split(".").slice(0, -1).map(squash).filter((l) => l.length >= 6); } catch { /* not a link */ }
+  return labels.some((l) => names.some((n) => squash(n).startsWith(l) || l.startsWith(squash(n))));
 }
 
 /* The mode this server is set up for, or null for none (OpenAI's search
@@ -152,10 +189,12 @@ export function searchProvider(env = process.env) {
 }
 
 /* What is searched: the sentence, without its parenthetical citations, quote
- * marks or brackets, which would narrow the results to its own words. */
+ * marks or brackets, which would narrow the results to its own words. An
+ * organisation the citation names stays ("(Grand View Research, 2026)" leaves
+ * "Grand View Research"), so the report the sentence cites can be found. */
 export function searchQueryFor(claim) {
   return String(claim ?? "")
-    .replace(/\([^()]*\b(?:1[5-9]\d\d|20\d\d|n\.\s?d\.)[^()]*\)/g, " ")
+    .replace(/\([^()]*\b(?:1[5-9]\d\d|20\d\d|n\.\s?d\.)[^()]*\)/g, (cite) => ` ${citedNames(cite).join(" ")} `)
     .replace(/\[[^\]]*\]/g, " ")
     .replace(/["“”‘’]/g, "")
     .replace(/\s+/g, " ")

@@ -187,7 +187,7 @@ const INLINE_PINNED = {
   "factcheck.js flowSystemPrompt": [() => INLINE_PROMPTS.flow(), "598d7164fe904998f36136597daa9ebb4ced722e5b6f47aebe2c51daa6e9e033"],
   "factcheck.js reviewSystemPrompt": [() => INLINE_PROMPTS.review(), "047f0534e70eac5a3a2e85cbacda75d2802eacb88bee23b0c23a3cb1a13bbffb"],
   "factcheck.js essayReviewSystemPrompt": [() => INLINE_PROMPTS.essayReview(), "a25ee98a22a81592f149b9fdfd14c16224cc61756b29e10c4279125ea45ffbd5"],
-  "sourceVerify.js VERIFY_SYSTEM": [() => VERIFY_SYSTEM, "9cc38833bbaa530da91adef19b14044460fbc8a9646e23d60327cf5f6fc7dee6"],
+  "sourceVerify.js VERIFY_SYSTEM": [() => VERIFY_SYSTEM, "adc0cebe90bacd31d4fbb2bf3795dcf2221b36ad63858c9256176e2e8450bb99"],
   "sourceVerify.js COVER_SYSTEM": [() => COVER_SYSTEM, "6ea31160c5383c72d5ae6518631401eb423dca58c2d424033d51e7b249615d8d"],
   "ai.js customGradeSystemPrompt": [() => customGradeSystemPrompt("RUBRIC"), "5725c2cab069a9928aac9baa5cfd23ef784057f97d1ee13394f0722b622855b0"],
 };
