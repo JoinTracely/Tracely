@@ -489,6 +489,12 @@ quiet cite button) for a claim that checks out but cites nothing. The
 - **Off:** Settings → Checking → "Look for evidence automatically"
   (`prefs.autoEvidence`) brings back the marks as they were, unsearched, and
   `FEATURES.lookupFirst` switches the whole of it.
+- **The website has a copy** (2026-10-30, Tracely-Website
+  `assets/site/demo.js`, `pages/fact-check.js`): signed in, the same five
+  lookups a check, statistics first, at most three a minute, the same
+  outcomes. `CITATION_MARK`, `WORTHY_QUANTITY` and `WORTHY_NOT_A_QUANTITY` are
+  copied there as they are, so copy them again when they change. It has no
+  writing kinds, no `citationWorthy` and no Works Cited checks.
 - **Its labels** (2.21.74, the cost counters): each lookup also sends
   `lookupTags` (`lookupTagsFor`), never text, which the server counts
   (server/CLAUDE.md, "The cost counters"):

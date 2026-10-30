@@ -139,7 +139,10 @@ extension, and buying a plan opens Stripe's checkout with your account id, so
 the purchase reaches your account. The website's Fact check and Find sources
 send the text you give them to our server: signed out, as the try-out page
 does (above); signed in, on your account's plan, the way the extension's
-checks do. The website sets no advertising or
+checks do. That includes looking up to 5 claims a check, the way "Finding
+sources" describes, and more if you ask, without the labels. The extension's
+"Look for evidence automatically" setting does not apply there. The website
+sets no advertising or
 analytics cookies.
 
 **Every request** to our server carries a random install id, generated once
