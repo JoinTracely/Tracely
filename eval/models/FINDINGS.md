@@ -131,13 +131,32 @@ input and the answer by about 5 tokens a source, about 0.012 cent a judge call
 at luna's prices ($0.20 and $1.20 a million), against a lookup's 1.7 to 2.7
 cents. No call, search or page read is added.
 
-**To measure after it deploys** (the verifier eval runs against production;
-no key is on the owner's machine): `node eval/goldset/run-verify-prod.mjs
-eval/goldset/judged/2026-10-09-extension-prod.json
-eval/goldset/runs/<date>-verify-prod-on-1009.json`, and the same for
-2026-10-07 (about 5 cents each). Compare with the 2026-10-10 runs: its 48
-backs (34 the judges agree with) must hold, and its contradicts should only
-fall. Revert if backs drop.
+**Measured after it deployed** (production `e09989a`,
+`runs/2026-10-30-verify-prod-on-1007.json` and `-1009.json`, about 10 cents),
+against the 2026-10-10 runs on the same 310 judged sources. The judges label
+84 of them backs and 10 contradicts.
+
+| | backs | judges agree | contradicts | judges agree | wrong contradicts |
+|---|---|---|---|---|---|
+| 2026-10-10 | 48 | 34 | 14 | 5 | 9 |
+| 2026-10-30 (#61) | 54 | 37 | 6 | 4 | 2 |
+
+- **Wrong contradictions fell from 9 to 2.** Two of the nine were on a
+  sentence the judges say the source BACKS (the absolute number without
+  power stayed flat while the share fell: SDG Indicators and a "Figure of
+  the week" were both called contradicting). That is the matcha fault on
+  recorded data.
+- **Backs held and grew:** 48 → 54, judges agreeing 34 → 37.
+- **Real contradictions caught: 5 → 4.** Lost two the judges call
+  contradicting (an Orben and Przybylski specification analysis; "AI not yet
+  good enough to mark university essays" against a sentence about essays in
+  general, arguably a different scope), and gained one that was unread
+  before.
+- 54 of the 310 verdicts changed. Many are unread ↔ topic, pages read
+  differently three weeks apart, so a difference of one or two is within
+  the run's own noise. The drop from 9 wrong contradictions to 2 is not.
+
+Kept.
 
 ## 2026-10-07: source receipts — what the verify call reads, and what it costs
 
