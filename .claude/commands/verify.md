@@ -1,10 +1,11 @@
 ---
-description: Free health check of the production server, and what is live
+description: Health check of the production server, and what is live
 ---
 
-Check that Tracely's backend is actually working. **This costs nothing** — every
-probe stops before reaching OpenAI — so it is safe to run against production any
-time. Report each check as pass or fail with the evidence; a check you could not
+Check that Tracely's backend is actually working. **This costs almost nothing:**
+one tiny real OpenAI call, about 0.002 cents, at most once a minute, is the only
+way to know the key works and the account has credit. It is safe to run against
+production any time. Report each check as pass or fail with the evidence; a check you could not
 perform is not a check that passed.
 
 ## 1. Run the script
@@ -14,10 +15,16 @@ exits non-zero on the first failure. Run it, then do 3 and 4.
 
 ## 1b. The server is up and can spend
 
-`GET https://api.jointracely.com/api/status` must answer JSON with
+`GET https://api.jointracely.com/api/status?probe=1` must answer JSON with
 `hasKey: true`, `mock: false`, `budget.enforced: true` and a `paidBudget`
 object. A 404, an HTML page or `mock: true` means this is not the production
 server. No token is needed.
+
+`probe.ok: true` means OpenAI answered a real call. `hasKey` only says a key is
+set: it stayed `true` through the 2026-10-13 outage (key rejected) and the
+2026-10-29 one (out of credit). `false` is one of those, and a fail; `reason`
+says which. `null` means OpenAI could not be asked, so report it as unverified
+rather than passed.
 
 ## 2. The runbook checks (server/DEPLOY.md, "Verify after every deploy")
 

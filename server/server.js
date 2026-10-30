@@ -31,7 +31,7 @@ import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUse
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, KIND_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
          dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
-import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./lib/llm.js";
+import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents, probeProvider } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter, keyedRollingSum } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
 import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus } from "./lib/failureLog.js";
@@ -1513,6 +1513,10 @@ const server = http.createServer(async (req, res) => {
       // `paidBudget` (optional) is the Student/Pro pool on the extension's
       // routes; like both others it is spend on disk, not calls in flight.
       const betaOn = betaTokens().length > 0;
+      // `probe` (optional, only with ?probe=1): one tiny real model call, at
+      // most once a minute (llm.js probeProvider), for healthcheck.sh. A plain
+      // read never waits on the provider: the extension gives it 1.5 s.
+      const probe = url.searchParams.get("probe") === "1" && !MOCK && hasApiKey() ? await probeProvider() : null;
       json(res, 200, {
         hasKey: hasApiKey() || MOCK, mock: MOCK, docsBridge: bridgeConfigured(),
         budget: spendSummary({ enforced: entitlementConfigured() }),
@@ -1528,6 +1532,7 @@ const server = http.createServer(async (req, res) => {
         // of credit (seen in the last 15 minutes) — the one outage the spend
         // pools above can't show, because it is the account, not our ceiling.
         ...(upstreamStatus() ? { upstream: upstreamStatus() } : {}),
+        ...(probe ? { probe } : {}),
         // `release` (optional): the deployed commit and time, from the
         // release.json the deploy runbook writes. Additive; a laptop has none.
         ...(RELEASE ? { release: RELEASE } : {}),

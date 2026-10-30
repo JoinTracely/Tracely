@@ -66,6 +66,9 @@ export const openai = {
     return body;
   },
 
+  // The smallest real request (llm.js probeProvider): no one's text, and 16 output tokens, the Responses API's minimum.
+  probeBody: (model) => ({ model, input: "Reply with ok.", max_output_tokens: 16, reasoning: { effort: "low" } }),
+
   textBody({ model, system, messages, maxTokens, effort }) {
     const body = {
       model,

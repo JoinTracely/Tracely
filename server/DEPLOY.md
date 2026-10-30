@@ -95,7 +95,8 @@ downtime, because a volume cannot be attached to two copies at once.
    lists only the CNAME: the TXT is in `status.verificationDnsHost` and
    `status.verificationToken`, and in the dashboard's "Configure DNS Records".
 4. `server/scripts/healthcheck.sh https://api.jointracely.com`, then
-   `healthcheck.sh --demo`.
+   `healthcheck.sh --demo`. It fails when OpenAI is out of credit or refuses the
+   key (`/api/status?probe=1`, one tiny real call, about 0.002 cents).
 5. Then retire the Linode: revoke the old OpenAI key, delete
    `.github/workflows/deploy-server.yml`, and have Sam remove `/srv/tracely`,
    the `tracely` user and the Apache vhost.

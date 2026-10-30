@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Is the Tracely server up, and is it the production one? Free, read-only,
-# safe to run any time by either developer:
+# Is the Tracely server up, is it the production one, and can it reach OpenAI?
+# Read-only, safe to run any time by either developer:
 #
 #   server/scripts/healthcheck.sh                      # api.jointracely.com
 #   server/scripts/healthcheck.sh http://localhost:4477 --mock   # a local mock
 #   server/scripts/healthcheck.sh https://api.jointracely.com --commit <sha>
 #   server/scripts/healthcheck.sh https://api.jointracely.com --demo  # insist on the try-out
 #
+# The one thing that spends: /api/status?probe=1 makes the server send OpenAI
+# one tiny real call (about 0.002 cents, at most once a minute), because no
+# free route says whether the key works and the account has credit. It fails
+# when there is none or the key is refused, and WARNs when OpenAI can't be asked.
+#
 # The checks are the ones server/DEPLOY.md runs after every deploy: status
-# shape, a bad token answers as free, the extension's CORS allow and deny, the
+# shape, OpenAI answering, a bad token answers as free, the extension's CORS allow and deny, the
 # prefs route refused, (when the server reports it) that the live commit is
 # the one you expect, and — while the try-out is configured, which /api/status
 # shows as `demoBudget` (TRACELY_DEMO_SECRET set) — that /try answers 200 with
@@ -33,11 +38,11 @@ EXT_IDS="pkaihmliboboiafoodfaoflflcpipcnd dffmoeebkkghhgcklkbmaibfhgiegmdm"
 fail() { printf 'FAIL  %s\n' "$1"; exit 1; }
 ok() { printf 'ok    %s\n' "$1"; }
 
-status=$(curl -sS --max-time 15 "$BASE/api/status") || fail "GET /api/status did not answer"
-read -r hasKey mock enforced paid release demo demoOn <<<"$(printf '%s' "$status" | node -e '
+status=$(curl -sS --max-time 15 "$BASE/api/status?probe=1") || fail "GET /api/status did not answer"
+read -r hasKey mock enforced paid release demo demoOn probeOk probeReason upstream <<<"$(printf '%s' "$status" | node -e '
   let s=""; process.stdin.on("data", d => s += d).on("end", () => {
     let j; try { j = JSON.parse(s) } catch { console.log("parse parse parse parse parse parse parse"); return }
-    console.log(String(j.hasKey), String(j.mock), String(j.budget && j.budget.enforced), String("paidBudget" in j), j.release && j.release.commit ? j.release.commit : "-", String("demoBudget" in j), String(Boolean(j.demoBudget && j.demoBudget.enforced)))
+    console.log(String(j.hasKey), String(j.mock), String(j.budget && j.budget.enforced), String("paidBudget" in j), j.release && j.release.commit ? j.release.commit : "-", String("demoBudget" in j), String(Boolean(j.demoBudget && j.demoBudget.enforced)), j.probe ? String(j.probe.ok) : "-", (j.probe && j.probe.reason) || "-", (j.upstream && j.upstream.outOfCreditAt) || "-")
   })')"
 [ "$hasKey" = "parse" ] && fail "/api/status is not JSON — not a Tracely server"
 if [ "$MOCK" = 1 ]; then
@@ -49,6 +54,19 @@ else
   [ "$enforced" = "true" ] || fail "/api/status budget.enforced=$enforced (spend cap off)"
   [ "$paid" = "true" ] || fail "/api/status has no paidBudget"
   ok "/api/status: hasKey, enforced, paidBudget"
+  # hasKey only says a key is set. The probe is the newest word; "upstream" is
+  # a real call refused for lack of credit in the last 15 minutes.
+  if [ "$probeOk" = "true" ]; then
+    ok "OpenAI answered a real call: the key works and the account has credit"
+  elif [ "$probeReason" = "out_of_credit" ] || { [ "$probeOk" != "false" ] && [ "$upstream" != "-" ]; }; then
+    fail "OpenAI is OUT OF CREDIT: every check answers 503 budget. Add credit at platform.openai.com/settings/organization/billing"
+  elif [ "$probeOk" = "false" ]; then
+    fail "OpenAI REJECTS the API key ($probeReason): every check answers 503 no_key"
+  elif [ "$probeOk" = "null" ]; then
+    printf 'WARN  OpenAI could not be asked (%s): credit and key unverified\n' "$probeReason"
+  else
+    printf 'WARN  this server has no probe (a build before it): credit and key unverified\n'
+  fi
 fi
 
 code=$(curl -sS -o /tmp/hc.$$ -w '%{http_code}' --max-time 15 -H "Authorization: Bearer not-a-token" "$BASE/api/entitlement") || fail "GET /api/entitlement did not answer"
