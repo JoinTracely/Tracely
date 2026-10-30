@@ -87,3 +87,12 @@ test("percentage points are their own measure: never shown by a plain percent, e
   assert.equal(shown("Unemployment rose 10 percentage points.", "unemployment rose by 10 percentage points"), true);
   assert.equal(shown("Turnout rose roughly 4 percentage points.", "turnout climbed about 4.5 percentage points"), true, "the percent tolerance carries over");
 });
+
+test("a report's USD is the sentence's dollar sign: USD 5.5 billion shows $5.5 billion, another market's USD 1.03 billion does not (2026-10-30)", () => {
+  const claim = "The global matcha market will grow from $5.5 billion in 2026 to $8.9 billion in 2033 (Grand View Research).";
+  for (const q of ["is projected to grow from USD 5.5 billion in 2026 to USD 8.9 billion by 2033", "US$5.5 billion in 2026 and US$8.9bn by 2033", "5.5 billion USD in 2026 and 8.9 billion USD in 2033", "USD5.5 billion, then USD8.9 billion"]) {
+    assert.equal(figuresShown(claim, q).ok, true, q);
+  }
+  assert.deepEqual(show("USD 5.5 billion"), ["5500000000 money"]);
+  assert.equal(figuresShown(claim, "valued at USD 1.03 billion in 2026 and expected to reach USD 1.75 billion by 2033").ok, false);
+});

@@ -55,6 +55,9 @@ function normalize(text) {
     .toLowerCase()
     .replace(/[   ]/g, " ")
     .replace(/(\d)[·•](\d)/g, "$1.$2")
+    // "USD 5.5 billion", "US$5.5 billion" are "$5.5 billion" (2026-10-30: a
+    // report's own "USD 5.5 billion" never showed a sentence's "$5.5 billion").
+    .replace(/\b(?:usd|us\$)\s?(?=\d)/g, "$")
     .replace(/[‐-―−]/g, "-")
     .replace(/(\d),(?=\d{3}\b)/g, "$1");
 }
@@ -158,10 +161,10 @@ export function figuresOf(text) {
   // is never shown by "rose 10 percent" (Codex review C5, 2026-10-22).
   take(new RegExp(`\\b(\\d+(?:\\.\\d+)?|${NUMBER_WORD})\\s*(?:%|percent\\b|per cent\\b|percentage points?\\b)`, "g"),
     (m) => ({ value: num(m[1]), kind: /point/.test(m[0]) ? "points" : "percent", digits: /\d/.test(m[1]) }));
-  // $2,400; $1.5 million; 100 dollars; a hundred dollars
+  // $2,400; $1.5 million; 100 dollars; a hundred dollars; 5.5 billion USD
   take(/\$\s?(\d+(?:\.\d+)?)(?:\s*(thousand|million|billion|trillion|k|m|mn|bn|b)\b)?/g,
     (m) => ({ value: Number(m[1]) * (SCALE[m[2]] ?? 1), kind: "money", digits: true }));
-  take(new RegExp(`\\b(\\d+(?:\\.\\d+)?|${NUMBER_WORD_A})(?:\\s+(hundred|thousand|million|billion|trillion))?\\s+dollars\\b`, "g"),
+  take(new RegExp(`\\b(\\d+(?:\\.\\d+)?|${NUMBER_WORD_A})(?:\\s+(hundred|thousand|million|billion|trillion))?\\s+(?:dollars|usd)\\b`, "g"),
     (m) => ({ value: num(m[1]) * (m[2] === "hundred" ? 100 : SCALE[m[2]] ?? 1), kind: "money", digits: /\d/.test(m[1]) }));
   // half, a third, two-thirds …
   for (const [re, value] of FRACTION_WORDS) take(re, () => ({ value, kind: "percent", digits: false }));

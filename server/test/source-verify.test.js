@@ -320,9 +320,9 @@ test("backs with a quote that is there: supports, verified, the quote, where it 
   const t = applyVerdicts(sources, evidence, [
     { id: 0, verdict: "topic", quote: "" },
     { id: 1, verdict: "backs", quote: "spending on youth facilities fell by 73%" },
-    { id: 2, verdict: "contradicts", quote: "Spending on youth facilities rose by 12%" },
+    { id: 2, verdict: "contradicts", scope: "same", quote: "Spending on youth facilities rose by 12%" },
   ]);
-  assert.deepEqual(t, { changed: 3, quoted: 2, unquoted: 0, figures: 0, unjudged: 0 });
+  assert.deepEqual(t, { changed: 3, quoted: 2, unquoted: 0, figures: 0, scope: 0, unjudged: 0 });
   assert.deepEqual(sources[0], { title: "Ord & Davies", stance: "context", snippet: "Says support for youth leadership increased.", verified: true, readFrom: "abstract" }, "on the topic, read, not backing: no quote");
   assert.deepEqual(sources[1], { title: "GOV.UK", stance: "supports", snippet: "“spending on youth facilities fell by 73%”", verified: true, readFrom: "page", quote: "spending on youth facilities fell by 73%" });
   assert.equal(sources[2].stance, "refutes");
@@ -333,7 +333,7 @@ test("a verdict whose quote is not in the text falls to topic; a source the judg
   const sources = [{ stance: "supports", snippet: "orig" }, { stance: "supports", snippet: "orig" }, { stance: "context" }];
   const evidence = [{ i: 0, passages: [{ from: "page", text: "The report covers loneliness among young people in England." }] }, { i: 1, passages: [{ from: "abstract", text: "Anything at all that was read here." }] }, { i: 2, passages: [{ from: "page", text: "x".repeat(100) }] }];
   const t = applyVerdicts(sources, evidence, [{ id: 0, verdict: "backs", quote: "an invented line that is not there at all" }, { id: 2, verdict: "nonsense", quote: "" }]);
-  assert.deepEqual(t, { changed: 2, quoted: 0, unquoted: 1, figures: 0, unjudged: 2 });
+  assert.deepEqual(t, { changed: 2, quoted: 0, unquoted: 1, figures: 0, scope: 0, unjudged: 2 });
   assert.deepEqual(sources[0], { stance: "context", snippet: "orig", verified: true, readFrom: "page" }, "read, but the receipt was not real: not backing");
   assert.deepEqual(sources[1], { stance: "context", snippet: "orig", verified: false }, "no verdict came back: unverified");
   assert.equal(sources[2].verified, false, "an answer outside the enum is no verdict");
@@ -350,9 +350,9 @@ test("a backs whose quote does not show the sentence's figure falls to topic (cl
   const t = applyVerdicts(sources, evidence, [
     { id: 0, verdict: "backs", quote: "teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours" },
     { id: 1, verdict: "backs", quote: "72.7% of high school students reported sleeping less than 7 hours on school nights" },
-    { id: 2, verdict: "contradicts", quote: "Only about 27 percent of teens sleep seven hours or more on a school night" },
+    { id: 2, verdict: "contradicts", scope: "same", quote: "Only about 27 percent of teens sleep seven hours or more on a school night" },
   ], claim);
-  assert.deepEqual(t, { changed: 2, quoted: 2, unquoted: 0, figures: 1, unjudged: 0 });
+  assert.deepEqual(t, { changed: 2, quoted: 2, unquoted: 0, figures: 1, scope: 0, unjudged: 0 });
   assert.deepEqual(sources[0], { stance: "context", verified: true, readFrom: "page" }, "8 to 10 hours shows none of the 70 percent: read, on the topic, no receipt");
   assert.equal(sources[1].stance, "supports", "72.7% is roughly 70 percent");
   assert.equal(sources[2].stance, "refutes", "a contradiction is the judge's alone");
@@ -360,6 +360,111 @@ test("a backs whose quote does not show the sentence's figure falls to topic (cl
   const again = [{ stance: "supports" }];
   applyVerdicts(again, [evidence[0]].map((e) => ({ ...e, i: 0 })), [{ id: 0, verdict: "backs", quote: "teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours" }]);
   assert.equal(again[0].stance, "supports");
+});
+
+/* ── scope: a figure for something else contradicts nothing (owner, 2026-10-30) ──
+ * A lookup called the matcha sentence below a False claim, from Grand View
+ * Research's separate Matcha TEA Market report. Its Matcha Market report
+ * states the sentence's figures. The excerpts here are written for the test. */
+const MATCHA = "The global matcha market will grow from $5.5 billion in 2026 to $8.9 billion in 2033 (Grand View Research).";
+const MATCHA_TEA = { i: 0, passages: [{ from: "page", text: "The global matcha tea market was valued at USD 1.03 billion in 2026 and is expected to reach USD 1.75 billion by 2033, a CAGR of 7.8%." }] };
+const MATCHA_ALL = { i: 1, passages: [{ from: "page", text: "The global matcha market is projected to grow from USD 5.5 billion in 2026 to USD 8.9 billion by 2033, a CAGR of 7.1%." }] };
+const TEA_QUOTE = "The global matcha tea market was valued at USD 1.03 billion in 2026 and is expected to reach USD 1.75 billion by 2033";
+
+test("the matcha regression: another market's figures are topic, and the cited report's own figures back it", () => {
+  const sources = [{ title: "Matcha Tea Market Size Report, 2033", stance: "context" }, { title: "Matcha Market Size Report, 2033", stance: "context" }];
+  const t = applyVerdicts(sources, [MATCHA_TEA, MATCHA_ALL], [
+    { id: 0, verdict: "contradicts", scope: "different", quote: TEA_QUOTE },
+    { id: 1, verdict: "backs", scope: "same", quote: "The global matcha market is projected to grow from USD 5.5 billion in 2026 to USD 8.9 billion by 2033" },
+  ], MATCHA);
+  assert.deepEqual([sources[0].stance, sources[0].verified, sources[0].quote], ["context", true, undefined], "the tea market is not the matcha market: read, on the topic, no receipt");
+  assert.equal(sources[1].stance, "supports", "the cited report states $5.5 billion and $8.9 billion");
+  assert.equal(t.scope, 1);
+});
+
+test("the matcha regression with only the tea report found: nothing refutes it, so the lookup ends unverified, never false", () => {
+  for (const scope of ["different", "unsure", undefined, "SAME", ""]) {
+    const sources = [{ stance: "context" }];
+    const t = applyVerdicts(sources, [MATCHA_TEA], [{ id: 0, verdict: "contradicts", ...(scope === undefined ? {} : { scope }), quote: TEA_QUOTE }], MATCHA);
+    assert.equal(sources[0].stance, "context", `scope ${scope}: no contradiction`);
+    assert.deepEqual([t.scope, t.quoted, t.unquoted], [1, 0, 0], `scope ${scope}: counted as the scope rule's, not an unquoted receipt`);
+  }
+});
+
+test("a contradiction about the same thing still stands: a wrong date, a wrong figure, the opposite direction", () => {
+  const cases = [
+    ["World War II ended in 1943.", "The Second World War ended in 1945 with the surrender of Japan."],
+    ["The global matcha market will reach $12 billion in 2033 (Grand View Research).", "The global matcha market is projected to reach USD 8.9 billion by 2033."],
+    ["Spending on youth facilities in England rose by 73% between 2010/11 and 2022/23.", "Between 2010/11 and 2022/23, spending on youth facilities in England fell by 73%."],
+  ];
+  for (const [claim, text] of cases) {
+    const sources = [{ stance: "context" }];
+    const t = applyVerdicts(sources, [{ i: 0, passages: [{ from: "page", text }] }], [{ id: 0, verdict: "contradicts", scope: "same", quote: text.replace(/\.$/, "") }], claim);
+    assert.equal(sources[0].stance, "refutes", claim);
+    assert.equal(t.scope, 0);
+  }
+});
+
+test("the same rule beyond markets: population, survey, measurement and economic figures for something else are topic", () => {
+  const cases = [
+    // a city is not its metro area
+    ["Tokyo has a population of about 37 million people.", "The city of Tokyo proper has about 14 million residents."],
+    // a survey of teenagers is not a survey of adults
+    ["A 2023 Pew survey found that 46% of U.S. adults use TikTok.", "A 2023 Pew Research Center survey found that 63% of U.S. teens use TikTok."],
+    // water's boiling point at sea level is not at altitude
+    ["Water boils at 100 degrees Celsius at sea level.", "At an altitude of 2,000 metres, water boils at about 93 degrees Celsius."],
+    // revenue is not profit, and another year is another figure
+    ["Apple's revenue was $383 billion in fiscal 2023.", "Apple reported net income of $97 billion for fiscal 2023."],
+    ["U.S. GDP grew 2.5% in 2023.", "U.S. GDP grew 1.9% in 2022."],
+  ];
+  for (const [claim, text] of cases) {
+    const sources = [{ stance: "context" }];
+    applyVerdicts(sources, [{ i: 0, passages: [{ from: "page", text }] }], [{ id: 0, verdict: "contradicts", scope: "different", quote: text.replace(/\.$/, "") }], claim);
+    assert.equal(sources[0].stance, "context", claim);
+  }
+});
+
+test("several statistics in one sentence: each is judged on its own, so one contradicted at the same scope still refutes it", () => {
+  const claim = "Tokyo has about 14 million residents, and 40 percent of them are over 60.";
+  const sources = [{ title: "Tokyo Metropolitan Government", stance: "context" }, { title: "Greater Tokyo Area", stance: "context" }];
+  applyVerdicts(sources, [
+    { i: 0, passages: [{ from: "page", text: "About 23 percent of Tokyo's residents are over 60, according to the 2020 census." }] },
+    { i: 1, passages: [{ from: "page", text: "The Greater Tokyo Area is home to about 37 million people." }] },
+  ], [
+    { id: 0, verdict: "contradicts", scope: "same", quote: "About 23 percent of Tokyo's residents are over 60" },
+    { id: 1, verdict: "contradicts", scope: "different", quote: "The Greater Tokyo Area is home to about 37 million people" },
+  ], claim);
+  assert.equal(sources[0].stance, "refutes", "the second figure, same city, same measure: a real contradiction");
+  assert.equal(sources[1].stance, "context", "the metro area's figure says nothing about the city's");
+});
+
+test("scope never touches backs (#327: a stricter judge lost most good backs)", () => {
+  const sources = [{ stance: "context" }];
+  applyVerdicts(sources, [MATCHA_ALL].map((e) => ({ ...e, i: 0 })), [{ id: 0, verdict: "backs", scope: "unsure", quote: "The global matcha market is projected to grow from USD 5.5 billion in 2026 to USD 8.9 billion by 2033" }], MATCHA);
+  assert.equal(sources[0].stance, "supports");
+});
+
+test("verifySources: one judge call carries the scope; a contradicts about something else ends as topic and is counted", async () => {
+  const page = `<html><head><title>Matcha Tea Market</title></head><body><main><p>${MATCHA_TEA.passages[0].text}</p><p>${FILLER}</p></main></body></html>`;
+  const fetchImpl = fakeFetch({ "tea.example": { text: page } });
+  const sources = [{ title: "Matcha Tea Market Size Report", url: "https://tea.example/matcha-tea-market", stance: "context" }];
+  let calls = 0;
+  const call = async () => { calls++; return { parsed: { verdicts: [{ id: 0, verdict: "contradicts", scope: "different", quote: TEA_QUOTE }] }, usage: { input: 900, output: 60, cached: 0, cacheWrite: 0 } }; };
+  const r = await verifySources({ claim: MATCHA, sources, model: "gpt-5.6-luna", call, fetchImpl });
+  assert.equal(calls, 1, "no second call");
+  assert.deepEqual([r.checked, r.scope, sources[0].stance, sources[0].verified], [1, 1, "context", true]);
+});
+
+test("the judge is asked for scope in the same call, and told what a different scope is", () => {
+  const item = VERIFY_SCHEMA.properties.verdicts.items;
+  assert.ok(item.required.includes("scope"));
+  assert.deepEqual(item.properties.scope.enum, ["same", "different", "unsure"]);
+  assert.match(VERIFY_SYSTEM, /about the SAME thing the claim is about/);
+  assert.match(VERIFY_SYSTEM, /the "matcha tea market" is not the "matcha market"/);
+  assert.match(VERIFY_SYSTEM, /Different numbers alone never make a contradiction/);
+  assert.match(VERIFY_SYSTEM, /judge each on its own/);
+  assert.match(VERIFY_SYSTEM, /another report of theirs is judged like any other source/);
+  assert.match(VERIFY_SYSTEM, /A "contradicts" whose scope is not "same" is discarded as "topic"/);
 });
 
 test("a long quote is cut for display at a word, still the source's own words", () => {
@@ -428,7 +533,7 @@ test("wired: after the page lookups, billed with the search, retracted dropped, 
   assert.match(SERVER, /const \{ webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, stages, reads, pages, via, cheapOrigin, cheapPicked, provider: searchApi, providerSearches, providerMicroCents, \.\.\.result \} = answer;/, "the tallies never reach the extension");
   assert.match(SERVER, /tallyStages\(url\.pathname, gate\.pool, timing, \{ reads, backed \}\);/, "each search's stages go to the hourly lines");
   assert.match(SERVER, /const \{ tally, stages, reads, \.\.\.result \} = await appCall\(gate, \{\s+task: "verify",/, "nor the desktop's");
-  assert.match(SERVER, /verified=\$\{verified\?\.checked \?\? 0\}\/\$\{verified\?\.changed \?\? 0\} quoted=\$\{verified\?\.quoted \?\? 0\} unquoted=\$\{verified\?\.unquoted \?\? 0\} figures=\$\{verified\?\.figures \?\? 0\} partial=\$\{verified\?\.partial \?\? 0\} unread=\$\{verified\?\.unread \?\? 0\} retracted=\$\{retracted \?\? 0\}/);
+  assert.match(SERVER, /verified=\$\{verified\?\.checked \?\? 0\}\/\$\{verified\?\.changed \?\? 0\} quoted=\$\{verified\?\.quoted \?\? 0\} unquoted=\$\{verified\?\.unquoted \?\? 0\} figures=\$\{verified\?\.figures \?\? 0\} scope=\$\{verified\?\.scope \?\? 0\} partial=\$\{verified\?\.partial \?\? 0\} unread=\$\{verified\?\.unread \?\? 0\} retracted=\$\{retracted \?\? 0\}/);
   assert.match(FACTCHECK, /partial: true, tell, enrich \}\)/, "OpenAI's search asks for the detail check");
   assert.match(FACTCHECK, /partial, context: context \? claimWindow\(context, claim\) : "", pages \}\)/, "with the claim's paragraph, reading through the search's shared pages");
 });

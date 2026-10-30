@@ -55,7 +55,13 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   A "backs" whose quote does not show the figure the sentence states ("roughly
   70 percent" backed by "8 to 10 hours") is `context`, with no model involved
   (`lib/claimFigures.js`, tallied `figures=`). Measured free on recorded
-  runs with `eval/goldset/figures.mjs`.
+  runs with `eval/goldset/figures.mjs`. A "contradicts" stands only when the
+  same judge call says its excerpt is about the same thing (`scope`: entity,
+  definition, measure, place, period); else it is `context`, tallied
+  `scope=` (2026-10-30: Grand View Research's Matcha TEA Market report had
+  "refuted" a sentence its Matcha Market report backs). The cheaper search
+  judges the cited organisation's own pages first (`searchApi.js`
+  `citedNames`). `eval/models/FINDINGS.md`, 2026-10-30.
   **Trim a detail** (owner, 2026-10-13): when nothing backs the whole sentence,
   a second, separate call (`coverDetail`, `COVER_SYSTEM`) checks whether one
   source backs all of it but one small detail. The verdict judge and its

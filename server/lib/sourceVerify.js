@@ -493,10 +493,11 @@ export const VERIFY_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "verdict", "quote"],
+        required: ["id", "verdict", "scope", "quote"],
         properties: {
           id: { type: "integer" },
           verdict: { type: "string", enum: ["backs", "contradicts", "topic"] },
+          scope: { type: "string", enum: ["same", "different", "unsure"], description: "Whether the deciding excerpt is about the same thing as the claim's statement: the same entity or population, definition, measure, place and period. A contradicts is kept only with \"same\"." },
           quote: { type: "string", description: "For backs/contradicts: the words from ONE excerpt that decide it, copied character for character as one contiguous span, at most 300 characters. \"\" for topic." },
         },
       },
@@ -508,10 +509,14 @@ export const VERIFY_SYSTEM = `You check whether sources actually say what a stud
 
 For each source, one verdict:
 - "backs": an excerpt states the claim's specific proposition — the same subject, the same direction, and the same figures where the claim gives any. A different word for the same measure is fine ("spending" or "investment", "facilities" or "services" when the text means the same figure). Backing part of a two-part claim is "backs" only if the part it backs is the claim's main point.
-- "contradicts": an excerpt states something that cannot be true alongside the claim (a different figure, the opposite direction, a different date or person).
+- "contradicts": an excerpt states something that cannot be true alongside the claim (a different figure, the opposite direction, a different date or person) about the SAME thing the claim is about. Two figures conflict only when they measure the same thing: the same entity or population, the same definition or scope, the same measure, the same place and the same period. A figure for something else is "topic", however close: the "matcha tea market" is not the "matcha market", a city's population is not its metro area's, a survey of teenagers is not a survey of adults, revenue is not profit, a forecast for 2030 is not one for 2033. Different numbers alone never make a contradiction. When the claim states several figures, judge each on its own: a source contradicts the claim only when it gives a different value for one of those same things.
 - "topic": anything else. A source about the same subject that does not state this sentence's specific proposition is "topic" — however relevant, however reputable: one that makes a different point, a broader or weaker one, a related finding, or only mentions the subject. This is the answer whenever you are unsure. A paper about youth services cut by austerity does NOT back a claim that support for youth leadership has grown.
 
 If a PROPOSED CORRECTION is given, judge against the ORIGINAL claim: a source that backs the correction "contradicts" the claim.
+
+A source from the publisher or author a claim cites is not, for that reason, the work it cites: another report of theirs is judged like any other source, by what its own text says it covers.
+
+"scope" says whether the excerpt that decides it is about the same thing as the claim's statement (entity or population, definition, measure, place, period), as the excerpt and the source's title say: "same", "different", or "unsure" when they do not say. A "contradicts" whose scope is not "same" is discarded as "topic".
 
 "quote" is the receipt the student is shown under the source. For "backs" and "contradicts", copy the words that decide it from ONE excerpt, character for character, as one contiguous span: no ellipses, nothing added, changed or reordered, at most 300 characters — a whole sentence or clause, enough to read on its own. The quote is checked against the excerpt, and a verdict whose quote is not there is discarded as "topic". Use "" for "topic".`;
 
@@ -528,12 +533,25 @@ export function markUnverified(s) {
  * contradicting the `quote` found in the source's own text, which also
  * becomes the snippet. A quote that is not there drops the verdict to
  * "topic", and so does a "backs" whose quote does not show the figure the
- * sentence states (`claim` given; claimFigures.js figuresShown). A source the
- * judge skipped is unverified. Pure, so it is tested without a model.
- * Returns { changed, quoted, unquoted, figures, unjudged }. */
+ * sentence states (`claim` given; claimFigures.js figuresShown), and so does
+ * a "contradicts" the judge did not say is about the same thing (`scope`,
+ * below). A source the judge skipped is unverified. Pure, so it is tested
+ * without a model. Returns { changed, quoted, unquoted, figures, scope,
+ * unjudged }.
+ *
+ * Owner, 2026-10-30: a lookup called "the global matcha market will grow from
+ * $5.5 billion in 2026 to $8.9 billion in 2033 (Grand View Research)" a False
+ * claim, from the same publisher's separate Matcha TEA Market report ($1.03
+ * billion, then $1.75 billion). Its Matcha Market report states the sentence's
+ * figures. VERIFY_SYSTEM listed "a different figure" as a contradiction
+ * without asking whether the figure was about the same thing. Now the same
+ * call says, per source, whether the deciding excerpt is about the same
+ * entity, definition, measure, place and period (`scope`), and a contradicts
+ * stands only on "same". Different or unsure is "topic": a lookup with
+ * nothing else then ends unverified, not false. Backs are untouched (#327). */
 export function applyVerdicts(sources, evidence, verdicts, claim = null) {
   const byId = new Map((Array.isArray(verdicts) ? verdicts : []).map((v) => [v?.id, v]));
-  const tally = { changed: 0, quoted: 0, unquoted: 0, figures: 0, unjudged: 0 };
+  const tally = { changed: 0, quoted: 0, unquoted: 0, figures: 0, scope: 0, unjudged: 0 };
   for (const e of evidence) {
     const s = sources[e.i];
     if (!s) continue;
@@ -551,6 +569,12 @@ export function applyVerdicts(sources, evidence, verdicts, claim = null) {
       if (m && v.verdict === "backs" && claim && !figuresShown(claim, m.text).ok) {
         m = null;
         tally.figures++;
+      }
+      // "The matcha tea market … USD 1.03 billion" against "the matcha market
+      // … $5.5 billion": a figure for something else contradicts nothing.
+      if (m && v.verdict === "contradicts" && v.scope !== "same") {
+        m = null;
+        tally.scope++;
       }
       s.stance = !m ? "context" : v.verdict === "backs" ? "supports" : "refutes";
       s.verified = true;
@@ -732,10 +756,11 @@ export async function verifySources({ claim, correction, sources, model, call = 
   // quoted: backs/contradicts whose quote was found; unquoted: whose quote was
   // not (fell to topic) — the number that says whether the rule is too strict.
   // figures: backs dropped because the quote does not show the sentence's figure.
+  // scope: contradicts dropped because the judge did not call them the same thing.
   // partial: sources that back all but one small detail (coverDetail).
   // reads and stages (milliseconds: reading, the judge call, the detail
   // check) are for the hourly stage lines (lib/stageTally.js), never a response.
-  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, partial: 0, unread: 0, retracted: [], usage: null, reads: {}, stages: { read: 0, judge: 0, trim: 0 } };
+  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, scope: 0, partial: 0, unread: 0, retracted: [], usage: null, reads: {}, stages: { read: 0, judge: 0, trim: 0 } };
   const since = (t) => Math.round(performance.now() - t);
   const unverify = (s) => {
     if (!s || typeof s !== "object") return;
@@ -773,6 +798,7 @@ export async function verifySources({ claim, correction, sources, model, call = 
     out.quoted = t.quoted;
     out.unquoted = t.unquoted;
     out.figures = t.figures;
+    out.scope = t.scope;
     out.unread += t.unjudged;
     out.usage = raw?.usage ?? null;
     if (partial && !correction) {
