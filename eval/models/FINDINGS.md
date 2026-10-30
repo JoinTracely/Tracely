@@ -53,6 +53,45 @@ on subtle claims; retired ids from old builds are translated to their tier
 (`usage.input_tokens_details.cache_write_tokens`, 1.25x input on all three
 models); the free check cap stays 400.
 
+## 2026-10-30: the check on production, and a finding copied onto the wrong sentence
+
+`run-prod.mjs`, all four sets at their usual reps, against production
+`f5ff46f` (the beta pool; part of `checkset` was recorded the day before at
+`8777aaa`, before OpenAI's credit ran out, with no prompt change between).
+The server's own verdicts:
+
+| set | strict | critical | false alarms | NC miss | p50 | p90 | ¢/call |
+|---|---|---|---|---|---|---|---|
+| checkset | 98 of the 99 answered at `f5ff46f` | 1 | 0/52 | 2/24 | 9.4 s | 60.2 s | 0.555 |
+| checkset-hard | 92% (129/140) | 7 | 4/58 | 6/22 | 10.8 s | 15.9 s | 0.188 |
+| checkset-narrative | 100% | 0 | 0/36 | 0/3 | 4.5 s | 5.6 s | 0.088 |
+| checkset-long | 100% | 0 | 0/51 | 0/30 | 11.8 s | 13.6 s | 0.531 |
+
+Against 2026-10-01 (a local luna@medium run, not production): checkset 98%,
+hard 96% with 2 critical and 0/58 false alarms, narrative 100%. The hard
+set's misses:
+
+- **Known since 2026-10-01:** h2s09 (1,274 measles cases, true, held false,
+  both reps); h1s07 and h5s07 (the HTC Dream's month, "only four European
+  teams") passed as accurate without a citation, both reps.
+- **A copied finding, both reps:** h4s08, a true, cited sentence about von
+  Braun, came back "false" with h4s09's explanation word for word ("The
+  sentence reverses the names of Apollo 11's lunar and command modules").
+  Not a knowledge error: the model wrote one finding twice.
+- **Once in two reps:** h3s04 (the Shelley dedication, false, passed),
+  h2s12 (an opinion called false), h3s11 (a cited IPCC sentence asked for a
+  citation). On checkset, e2s02 ("eight seconds" for sunlight's travel time)
+  was passed once at each commit and called false once at each.
+
+**The copy is now dropped** (`factcheck.js` `dropCopiedFindings`, in
+`checkBatch`). When two false, incoherent or questionable findings of one
+call carry the same explanation or basis, one whose own sentence holds none
+of that text's distinctive words, while another's does, is dropped, and the
+existing missed-id retry asks that sentence again on its own. Replayed over
+every recorded check of this run (33 checks, 464 findings, 111 of them
+false/incoherent/questionable; free, no network): it drops exactly the two
+h4s08 copies and nothing else. Cost: one small call, only when it fires.
+
 ## 2026-10-30: the source judge's "contradicts" needs the same scope
 
 Why: a lookup called "the global matcha market will grow from $5.5 billion

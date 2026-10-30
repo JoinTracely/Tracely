@@ -260,3 +260,60 @@ test("a call larger than one shard keeps the 120 s deadline", async () => {
   await sleep(30);
   assert.ok(seen && !seen.aborted, "a 1 ms deadline would have aborted it");
 });
+
+/* ── a finding copied onto the wrong sentence (owner, 2026-10-30) ──
+ * The accuracy run on production, checkset-hard h4s08 and h4s09, both reps:
+ * the model wrote h4s09's finding twice, once on the von Braun sentence. */
+const { dropCopiedFindings } = await import("../lib/factcheck.js");
+const VON_BRAUN = { id: "s8", text: "As the Smithsonian's National Air and Space Museum notes, Wernher von Braun, whose team led the development of the Saturn rockets, had been a Nazi Party member and an SS officer." };
+const COLUMBIA = { id: "s9", text: "On July 20, 1969, the lunar module Columbia touched down on the Moon while Michael Collins waited in orbit aboard Eagle." };
+const APOLLO = { verdict: "false", basis: "Apollo 11's lunar module was Eagle, while its command module Columbia remained in lunar orbit.", explanation: "The sentence reverses the names of Apollo 11's lunar and command modules.", revision: "r", confidence: "high" };
+
+test("dropCopiedFindings: the von Braun sentence loses the Apollo finding it was given; the Apollo sentence keeps it", () => {
+  const out = dropCopiedFindings([{ id: "s8", ...APOLLO }, { id: "s9", ...APOLLO }], [VON_BRAUN, COLUMBIA]);
+  assert.deepEqual(out.map((f) => f.id), ["s9"]);
+  // The same copy with a basis that differs in its last words: the explanation alone gives it away.
+  const again = dropCopiedFindings([{ id: "s8", ...APOLLO, basis: "Apollo 11's lunar module was Eagle; Columbia carried Michael Collins in lunar orbit." }, { id: "s9", ...APOLLO }], [VON_BRAUN, COLUMBIA]);
+  assert.deepEqual(again.map((f) => f.id), ["s9"]);
+});
+
+test("dropCopiedFindings: nothing is dropped unless one sentence holds the words and another holds none", () => {
+  const same = { verdict: "false", basis: "The Treaty of Versailles was signed on 28 June 1919, not in 1920.", explanation: "The Treaty of Versailles was signed in 1919, not 1920.", revision: "r", confidence: "high" };
+  const a = { id: "a", text: "The Treaty of Versailles was signed in 1920." };
+  const b = { id: "b", text: "Germany signed the Versailles treaty in 1920, ending the war." };
+  const c = { id: "c", text: "It changed the map of Europe." };
+  const d = { id: "d", text: "Nobody expected what came next." };
+  // Two sentences that both hold the words: two real findings that happen to read the same.
+  assert.equal(dropCopiedFindings([{ id: "a", ...same }, { id: "b", ...same }], [a, b]).length, 2);
+  // Neither holds them: no way to tell which is the original, so both stand.
+  assert.equal(dropCopiedFindings([{ id: "c", ...same }, { id: "d", ...same }], [c, d]).length, 2);
+  // Different explanations: nothing to compare.
+  assert.equal(dropCopiedFindings([{ id: "s8", ...APOLLO, explanation: "Von Braun was never in the SS.", basis: "Von Braun joined the Nazi Party in 1937." }, { id: "s9", ...APOLLO }], [VON_BRAUN, COLUMBIA]).length, 2);
+  // A short generic explanation is not taken for a copy.
+  const short = { verdict: "false", explanation: "The date is wrong.", revision: "r", confidence: "high" };
+  assert.equal(dropCopiedFindings([{ id: "s8", ...short }, { id: "s9", ...short, explanation: "The date is wrong." }], [VON_BRAUN, COLUMBIA]).length, 2);
+});
+
+test("dropCopiedFindings: citation requests and clean sentences are never touched", () => {
+  const cite = { verdict: "needs_citation", basis: "A space agency or a history of the space program.", explanation: "The specific measurements need a source.", revision: "", confidence: "high" };
+  const sputnik = { id: "s2", text: "Sputnik 1 weighed about 184 pounds and took roughly an hour and a half to circle the planet." };
+  const out = dropCopiedFindings([{ id: "s2", ...cite }, { id: "s8", ...cite }, { id: "s9", verdict: "accurate", explanation: "", revision: "", confidence: "high" }], [sputnik, VON_BRAUN, COLUMBIA]);
+  assert.equal(out.length, 3);
+  assert.deepEqual(dropCopiedFindings([], []), []);
+});
+
+test("runFactCheck: a copied finding is dropped and that sentence asked again, alone, in one more call", async () => {
+  const calls = [];
+  globalThis.fetch = async (_url, opts) => {
+    const body = JSON.parse(opts.body);
+    const user = typeof body.input === "string" ? body.input : JSON.stringify(body.input);
+    const ids = [...user.matchAll(/^\[(s\d+)\]/gm)].map((m) => m[1]);
+    calls.push(ids);
+    const findings = ids.length > 1 ? [{ id: "s8", ...APOLLO }, { id: "s9", ...APOLLO }] : [{ id: "s8", verdict: "accurate" }];
+    return { ok: true, json: async () => ({ status: "completed", model: body.model, output_text: JSON.stringify({ findings }), output: [], usage: { input_tokens: 10, output_tokens: 5 } }) };
+  };
+  const r = await runFactCheck({ text: `${VON_BRAUN.text} ${COLUMBIA.text}`, sentences: [VON_BRAUN, COLUMBIA], model: "gpt-5.6-luna" });
+  assert.deepEqual(calls, [["s8", "s9"], ["s8"]], "the copy's sentence asked again on its own");
+  assert.deepEqual(r.findings.map((f) => [f.id, f.verdict]).sort(), [["s8", "accurate"], ["s9", "false"]]);
+  assert.equal(r.usage.input, 20, "both calls billed");
+});

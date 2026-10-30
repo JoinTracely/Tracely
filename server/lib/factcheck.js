@@ -291,9 +291,10 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, admitCal
   }
 
   const validIds = new Set(sentences.map((s) => s.id));
-  const findings = (Array.isArray(result.parsed.findings) ? result.parsed.findings : [])
+  // A finding copied onto the wrong sentence is dropped here, so the retry below asks that sentence again.
+  const findings = dropCopiedFindings((Array.isArray(result.parsed.findings) ? result.parsed.findings : [])
     .filter((f) => f && validIds.has(f.id))
-    .map(normalizeFinding);
+    .map(normalizeFinding), sentences);
 
   // One finding per id is the contract, and the model keeps it almost
   // always — measured once in 165 judgements it left an id out. A sentence
@@ -334,6 +335,52 @@ export function normalizeFinding(f) {
   };
   if (flagged && basis) out.basis = basis;
   return out;
+}
+
+/* A finding written onto the wrong sentence. Owner, 2026-10-30, from the
+ * accuracy run on production: in both reps of checkset-hard, a true, cited
+ * sentence about von Braun came back "false" with the NEXT sentence's
+ * explanation word for word ("The sentence reverses the names of Apollo 11's
+ * lunar and command modules"). The model wrote one finding twice.
+ *
+ * When two flagged findings of one call carry the same explanation or basis,
+ * a copy is one whose own sentence holds none of that text's distinctive
+ * words (Apollo, lunar, Columbia…) while another's does. It is dropped, so
+ * checkBatch's missed-id retry asks that sentence again on its own: one small
+ * call, and only when this happens. When every sentence or none holds the
+ * words, nothing is dropped. needs_citation is left alone, since its
+ * explanations are generic ("these figures need a source") and often the
+ * same. Pure, so it is tested without a model. */
+const COPY_KINDS = new Set(["false", "incoherent", "questionable"]);
+const COPY_STOP = new Set("about after also been being both could does each from have into more most much only other over same some such than that their them then there these they this those very were what when where which while whom whose will with would sentence claim statement source citation fact actually correct correctly incorrect wrong instead rather state says said year figure number".split(" "));
+function copyWords(text) {
+  const words = String(text ?? "").toLowerCase().match(/[\p{L}\p{N}]{4,}|\d+/gu) ?? [];
+  return new Set(words.filter((w) => !COPY_STOP.has(w)).map((w) => w.replace(/s$/, "")).filter((w) => !COPY_STOP.has(w)));
+}
+export function dropCopiedFindings(findings, sentences) {
+  const list = Array.isArray(findings) ? findings : [];
+  const textOf = new Map((Array.isArray(sentences) ? sentences : []).map((s) => [s.id, String(s.text ?? "")]));
+  const key = (s) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const groups = new Map();
+  for (const f of list) {
+    if (!COPY_KINDS.has(f?.verdict)) continue;
+    for (const k of new Set([key(f.explanation), key(f.basis)])) {
+      if (k.length < 20) continue; // "the date is wrong": too short to be a copy rather than a coincidence
+      if (!groups.has(k)) groups.set(k, new Set());
+      groups.get(k).add(f);
+    }
+  }
+  const copies = new Set();
+  for (const group of groups.values()) {
+    if (group.size < 2) continue;
+    const fit = [...group].map((f) => {
+      const own = copyWords(textOf.get(f.id));
+      return [f, [...copyWords(`${f.explanation} ${f.basis ?? ""}`)].filter((w) => own.has(w)).length];
+    });
+    if (!fit.some(([, n]) => n > 0)) continue;
+    for (const [f, n] of fit) if (n === 0) copies.add(f);
+  }
+  return copies.size ? list.filter((f) => !copies.has(f)) : list;
 }
 
 // A hook that throws refuses: the shards run as one call.
