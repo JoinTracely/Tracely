@@ -13,7 +13,7 @@ import {
 import { citeFields, SOURCE_KINDS } from "./citeFields.js";
 import { isNarrowing } from "../shared/narrowing.js";
 import { trimSentence } from "./claimTrim.js";
-import { searchProvider, searchQueryFor, candidateResults, strongFirst, citedNames } from "./searchApi.js";
+import { searchProvider, searchQueryFor, candidateResults, strongFirst, citedNames, standardIds, namesStandard } from "./searchApi.js";
 
 // Re-exported so every existing importer (server.js, tests) is unaffected by
 // CheckError having moved into its own module to break an import cycle.
@@ -478,14 +478,30 @@ export async function findSources(opts) {
    * the proposed fix, which a plain query can't put, so it is OpenAI's alone,
    * as before; so is a caller that turns the reading off. */
   const provider = correction || enrich === false ? null : opts.provider === undefined ? searchProvider() : opts.provider;
-  if (!provider) return openaiSources(opts);
+  if (!provider) return lookupAnswer(await openaiSources(opts), opts);
   const tell = progressOf(opts.onProgress);
-  return cheapFirst({
+  return lookupAnswer(await cheapFirst({
     claim, model: chosenModel, provider, tell,
     // Nothing backing it here means OpenAI's search next, so the detail check waits for that one.
     judge: (merged) => judgeSources(merged, { claim, context: opts.context, model: chosenModel, partial: false, tell }),
     full: () => openaiSources(opts),
-  });
+  }), opts);
+}
+
+/* A lookup that found the very standard a sentence cites, and could not open
+ * it, has learned nothing about the sentence. iso.org refuses the reader (403),
+ * so a real ISO report was left "Unverified" on the strength of whatever else
+ * the search read. Clients call a lookup "unverified" when something they read
+ * said nothing (the extension's lookupOutcome), and "unread", no flag, when
+ * they read nothing, so the answer is that document alone: no store update
+ * needed. A source that backs or refutes the sentence always stands. */
+export function lookupAnswer(answer, { claim, lookup = false }) {
+  if (!lookup) return answer;
+  const list = answer?.sources ?? [];
+  if (list.some((s) => s.verified === true && (s.stance === "supports" || s.stance === "refutes"))) return answer;
+  const ids = standardIds(claim);
+  const unread = list.filter((s) => s.verified === false && namesStandard(s, ids));
+  return unread.length ? { ...answer, sources: unread } : answer;
 }
 
 /* OpenAI's web search, then the receipts: every source search before
@@ -655,7 +671,8 @@ export async function cheapFirst({ claim, model, provider, judge, full, tell = (
   } catch {
     found = null;
   }
-  const ranked = found ? strongFirst(candidateResults(found.results, 20), CHEAP_MAX, citedNames(claim)) : null;
+  const standards = standardIds(claim);
+  const ranked = found ? strongFirst(candidateResults(found.results, 20), CHEAP_MAX, citedNames(claim), standards) : null;
   const results = ranked?.picked ?? null;
   const charged = Math.max(0, Number(found?.microCents) || 0);
   // How many strong and unvetted candidates there were, and how many were judged: the log line's `picked=`.
@@ -691,7 +708,9 @@ export async function cheapFirst({ claim, model, provider, judge, full, tell = (
   }
   const have = new Set(rest.sources.map((s) => urlKey(s.url)));
   const saysOtherwise = (judged?.sources ?? []).filter((s) => s.stance === "refutes" && s.verified === true && !have.has(urlKey(s.url))).slice(0, 2);
-  return { ...rest, sources: [...rest.sources, ...saysOtherwise], usage: judged?.usage ? addUsage(rest.usage, judged.usage) : rest.usage, via: "fallback", ...fee,
+  // The standard the sentence cites, found here and unreadable: kept for lookupAnswer.
+  const citedUnread = (judged?.sources ?? []).filter((s) => s.verified === false && namesStandard(s, standards) && !have.has(urlKey(s.url))).slice(0, 1);
+  return { ...rest, sources: [...rest.sources, ...saysOtherwise, ...citedUnread], usage: judged?.usage ? addUsage(rest.usage, judged.usage) : rest.usage, via: "fallback", ...fee,
     stages: { cheap: cheapMs, ...rest.stages } };
 }
 

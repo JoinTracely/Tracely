@@ -76,7 +76,8 @@ characters of surrounding text are sent to our server and to OpenAI, whose
 web-search tool may run searches derived from that sentence. When our server
 has it turned on, it first searches for the sentence in **OpenAlex** (a free
 index of scholarly papers) and, if it is set up, **Brave Search**: each
-receives that one sentence, with its citation taken out, as a search query,
+receives that one sentence as a search query, with its citation taken out
+except for the name of an organization or the number of a standard it cites,
 and never the document, the text around it or anything about you. OpenAI's
 search runs only when nothing they find backs the sentence. Tracely also
 looks up a claim the check would mark as needing evidence or a citation
@@ -216,7 +217,7 @@ removes the rest.
   (openlibrary.org) to look the work up.
 - **OpenAlex's search** (api.openalex.org) and **Brave Search**
   (api.search.brave.com), when our server has them turned on, for finding
-  sources: each receives the sentence being looked up, with its citation
+  sources: each receives the sentence being looked up, with most of its citation
   taken out, as a search query, and never the document, the text around it or
   anything about you. We keep none of what they return except the links our
   server then reads.

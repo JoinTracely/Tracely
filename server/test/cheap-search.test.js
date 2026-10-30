@@ -9,8 +9,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PROVIDERS, searchProvider, searchQueryFor, candidateResults, openAlexCandidates, strongFirst, citedNames } from "../lib/searchApi.js";
-import { cheapFirst, findSources } from "../lib/factcheck.js";
+import { PROVIDERS, searchProvider, searchQueryFor, candidateResults, openAlexCandidates, strongFirst, citedNames, standardIds, namesStandard } from "../lib/searchApi.js";
+import { cheapFirst, findSources, lookupAnswer } from "../lib/factcheck.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLAIM = "Most high school students in the United States sleep fewer than 8 hours on school nights (CDC, 2023).";
@@ -354,4 +354,80 @@ test("in the pass: a sentence citing Grand View Research has its pages judged fi
     full: async () => { throw new Error("not reached"); } });
   assert.equal(judged[0], "https://www.grandviewresearch.com/industry-analysis/matcha-market");
   assert.equal(r.via, "cheap");
+});
+
+/* ── a standard a sentence cites (owner, 2026-10-30) ──
+ * A real ISO technical report Tracely could not find. Its number was dropped
+ * with the citation, for holding a year, and what was left never said matcha.
+ * And iso.org refuses the reader, so finding it would have proved nothing. */
+const ISO_CLAIM = "Furthermore, the International Organization for Standardization (ISO) published an internationally agreed-upon definition based on plant source, cultivation, and processing methods (\u201cISO/TR 21380:2022\u201d).";
+const ISO_PAGE = { title: "ISO/TR 21380:2022 - Matcha tea \u2014 Definition and characteristics", url: "https://www.iso.org/standard/80777.html", stance: "context", verified: false };
+
+test("standardIds: the numbers of published standards, never a citation's author, year or page", () => {
+  assert.deepEqual(standardIds(ISO_CLAIM), ["ISO/TR 21380:2022"]);
+  assert.deepEqual(standardIds("It follows NIST SP 800-53 and RFC 9110 under ISO/IEC 27001:2022."), ["NIST SP 800-53", "RFC 9110", "ISO/IEC 27001:2022"]);
+  assert.deepEqual(standardIds("Bags meet ASTM D6400 and toys EN 71-1 (IEEE Std 802.11)."), ["ASTM D6400", "EN 71-1", "IEEE Std 802.11"]);
+  for (const s of ["Tea is popular (Smith, 2020).", "The WHO said so (WHO, 2023, p. 12).", "Half the class (ISO, 2022) agreed.", "It rose 12 percent in 2025."]) {
+    assert.deepEqual(standardIds(s), [], s);
+  }
+});
+
+test("searchQueryFor keeps a standard's number, first, where a long sentence's cut can't reach it", () => {
+  assert.equal(searchQueryFor(ISO_CLAIM), "ISO/TR 21380:2022 Furthermore, the International Organization for Standardization (ISO) published an internationally agreed-upon definition based on plant source, cultivation, and processing methods .");
+  const long = searchQueryFor(`${"word ".repeat(100)}(ISO 9001:2015).`);
+  assert.ok(long.startsWith("ISO 9001:2015 word"), long.slice(0, 40));
+  assert.equal(long.length, 350);
+  assert.equal(searchQueryFor("It meets ASTM D6400, a real standard."), "It meets ASTM D6400, a real standard.", "already in the sentence: not repeated");
+  assert.equal(searchQueryFor("Teens are tired (Smith and Lee, 2019)."), "Teens are tired .", "an ordinary citation still goes");
+});
+
+test("namesStandard: the title or the address carries the number, whatever its edition year", () => {
+  const ids = standardIds(ISO_CLAIM);
+  assert.equal(namesStandard(ISO_PAGE, ids), true);
+  assert.equal(namesStandard({ title: "A summary", url: "https://genorma.com/en/standards/iso-tr-21380-2022" }, ids), true);
+  assert.equal(namesStandard({ title: "ISO/TR 21380:2018" }, ids), true, "another edition of the same report");
+  assert.equal(namesStandard({ title: "ISO/TR 21381:2022", url: "https://www.iso.org/standard/1.html" }, ids), false);
+  assert.equal(namesStandard({ title: "Matcha tea" }, ids), false);
+  assert.equal(namesStandard(ISO_PAGE, []), false);
+});
+
+test("strongFirst: the cited standard is judged first, and never left unjudged", () => {
+  const strong = ["cdc.gov/a", "nih.gov/b", "reuters.com/c"].map((u) => ({ url: `https://www.${u}`, title: u }));
+  const mirror = { url: "https://genorma.com/en/standards/iso-tr-21380-2022", title: "A summary" };
+  const r = strongFirst([...strong, mirror], 8, [], standardIds(ISO_CLAIM));
+  assert.equal(r.picked[0], mirror);
+  assert.equal(r.picked.length, 4);
+  assert.equal(strongFirst([...strong, mirror], 8).picked.length, 3, "no standard cited: exactly as before");
+});
+
+test("a lookup that found the cited standard but could not open it says nothing, instead of Unverified", () => {
+  const topic = { title: "Tea", url: "https://x.example/tea", stance: "context", verified: true };
+  const answer = { sources: [topic, ISO_PAGE], usage: { input: 5 } };
+  const out = lookupAnswer(answer, { claim: ISO_CLAIM, lookup: true });
+  assert.deepEqual(out.sources, [ISO_PAGE], "nothing read is left, which every client reads as unread: no flag");
+  assert.deepEqual(out.usage, { input: 5 });
+  // A source that decides it stands.
+  for (const stance of ["supports", "refutes"]) {
+    const decided = { sources: [{ ...topic, stance }, ISO_PAGE] };
+    assert.equal(lookupAnswer(decided, { claim: ISO_CLAIM, lookup: true }), decided, stance);
+  }
+  // Only a lookup, and only that standard.
+  assert.equal(lookupAnswer(answer, { claim: ISO_CLAIM, lookup: false }), answer, "the writer's own search keeps its list");
+  assert.equal(lookupAnswer(answer, { claim: "Tea is popular (Smith, 2020).", lookup: true }), answer);
+  const other = { sources: [topic, { ...ISO_PAGE, title: "Paywalled", url: "https://y.example/a" }] };
+  assert.equal(lookupAnswer(other, { claim: ISO_CLAIM, lookup: true }), other, "an unread page that isn't the cited standard proves nothing");
+});
+
+test("cheapFirst: the cited standard found unread survives OpenAI's fallback; another unread page doesn't", async () => {
+  const p = provider([{ url: ISO_PAGE.url, title: ISO_PAGE.title }, { url: "https://y.example/a", title: "Walled" }]);
+  const r = await cheapFirst({ claim: ISO_CLAIM, model: "gpt-5.6-luna", provider: p,
+    judge: async (merged) => ({ sources: merged.map((s) => ({ ...s, stance: "context", verified: false })), usage: null, stages: {} }),
+    full: async () => ({ sources: [{ title: "Tea", url: "https://x.example/tea", stance: "context", verified: true }], model: "gpt-5.6-luna", usage: { input: 1, output: 1 }, webSearchCalls: 1, webSearchActions: {}, stages: {} }) });
+  assert.equal(r.via, "fallback");
+  assert.deepEqual(r.sources.map((s) => s.url), ["https://x.example/tea", ISO_PAGE.url]);
+  assert.equal(p.q.startsWith("ISO/TR 21380:2022 "), true);
+});
+
+test("the route says when a search is a lookup", () => {
+  assert.match(readFileSync(path.join(HERE, "..", "server.js"), "utf8"), /findSources\(\{ claim, correction, context, model: modelUsed, effort: level, mock: MOCK, onProgress, lookup: verify \}\)/);
 });

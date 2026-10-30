@@ -25,7 +25,8 @@
  *     OpenAlex's papers, asked at once and judged in one pass.
  * TRACELY_SEARCH_PRICE_PER_1K_USD records Brave's real plan price on the cost
  * page and against the spend cap. Only the search query leaves: the sentence
- * with its citation taken out, never the document. Keys live in Railway's
+ * with its citation taken out, but for an organisation's name or a standard's
+ * number (citedNames, standardIds), never the document. Keys live in Railway's
  * variables, never in the tree. */
 import { searchOpenAlex, lexicalRelevance } from "./evidence.js";
 import { RELEVANCE_FLOOR_LEXICAL } from "../shared/marks.js";
@@ -105,13 +106,13 @@ export async function openAlexCandidates(q, claim, { apiKey = "" } = {}) {
  * so a sentence only a smaller site states is still found cheaply. Nothing
  * shown is dropped: the extension labels and ranks whatever is returned. */
 const ENOUGH_STRONG = 3;
-export function strongFirst(results, max = 8, cited = []) {
+export function strongFirst(results, max = 8, cited = [], standards = []) {
   const list = Array.isArray(results) ? results : [];
   const strong = list.filter((r) => credibilityOf({ url: r.url, doi: r.doi, venueType: r.venueType }).tier !== "unvetted");
   const weak = list.filter((r) => !strong.includes(r));
   const usual = strong.length >= ENOUGH_STRONG ? strong : [...strong, ...weak];
   // The publisher the sentence cites goes first, and is never left unjudged (citedNames).
-  const theirs = list.filter((r) => fromCited(r, cited));
+  const theirs = list.filter((r) => fromCited(r, cited) || namesStandard(r, standards));
   const picked = [...theirs, ...usual.filter((r) => !theirs.includes(r))].slice(0, max);
   return { picked, strong: strong.length, weak: weak.length };
 }
@@ -138,6 +139,22 @@ export function citedNames(claim) {
   }
   for (const m of s.matchAll(/\b[Aa]ccording to (?:the\s+)?((?:[\p{Lu}][\p{L}'’.-]*\s*){2,6})/gu)) keep(m[1]);
   return out;
+}
+/* The published standards a sentence names: "ISO/TR 21380:2022", "ASTM D6400",
+ * "RFC 9110", "NIST SP 800-53". Owner, 2026-10-30, on a real ISO technical
+ * report Tracely could not find: its number was the one thing that named it,
+ * and the citation it sat in was dropped from the search for holding a year,
+ * leaving a sentence that never says what the report is about. */
+const STANDARD = /\b(?:ISO(?:\/[A-Z]{2,4})*|IEC|ASTM|ANSI(?:\/[A-Z]{2,6})*|IEEE(?:\s+Std)?|NIST\s+SP|FIPS|RFC|DIN|BS|EN)[\s-]*[A-Z]?\s?\d{2,6}(?:[-.]\d+)*(?::\d{4})?/g;
+export function standardIds(text) {
+  return [...new Set(String(text ?? "").match(STANDARD) ?? [])];
+}
+/* Whether a result is that standard: its title or address carries the number,
+ * whatever its edition year ("iso-tr-21380-2022", "ISO/TR 21380:2022 - Matcha tea"). */
+export function namesStandard(r, ids) {
+  if (!Array.isArray(ids) || !ids.length) return false;
+  const hay = squash(`${r?.title ?? ""} ${r?.url ?? ""}`);
+  return ids.some((id) => hay.includes(squash(id.replace(/:\d{4}$/, ""))));
 }
 // A result is the cited organisation's own page when its address spells the
 // name: grandviewresearch.com for Grand View Research, pewresearch.org for Pew
@@ -191,15 +208,16 @@ export function searchProvider(env = process.env) {
 /* What is searched: the sentence, without its parenthetical citations, quote
  * marks or brackets, which would narrow the results to its own words. An
  * organisation the citation names stays ("(Grand View Research, 2026)" leaves
- * "Grand View Research"), so the report the sentence cites can be found. */
+ * "Grand View Research"), so the report the sentence cites can be found. A
+ * standard's number goes first, where a long sentence's cut can't reach it. */
 export function searchQueryFor(claim) {
-  return String(claim ?? "")
+  const cleaned = String(claim ?? "")
     .replace(/\([^()]*\b(?:1[5-9]\d\d|20\d\d|n\.\s?d\.)[^()]*\)/g, (cite) => ` ${citedNames(cite).join(" ")} `)
     .replace(/\[[^\]]*\]/g, " ")
     .replace(/["“”‘’]/g, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_QUERY);
+    .trim();
+  return [...standardIds(claim).filter((id) => !cleaned.includes(id)), cleaned].join(" ").slice(0, MAX_QUERY);
 }
 
 /* Results worth reading: web pages, one per address, not a PDF (the reader

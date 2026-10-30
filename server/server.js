@@ -1848,7 +1848,7 @@ const server = http.createServer(async (req, res) => {
       const onProgress = live ? (ev) => { if (ev.type === "found") foundSent = true; send(ev); } : null;
       let answer;
       try {
-        answer = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK, onProgress });
+        answer = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK, onProgress, lookup: verify });
       } catch (err) {
         if (!live) throw err;
         // The headers are out: the failure goes down the stream in
