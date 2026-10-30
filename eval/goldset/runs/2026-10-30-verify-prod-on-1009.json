@@ -1,0 +1,126 @@
+{
+ "meta": {
+  "what": "production /api/verify-sources on a judged run's sources",
+  "base": "https://api.jointracely.com",
+  "partial": false,
+  "judged": "2026-10-09-extension-prod.json",
+  "install": "a682bef2-2a71-46b3-bee7-28f145f1e0de",
+  "startedAt": "2026-10-30T07:01:05.715Z"
+ },
+ "results": {
+  "ex-01-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c1-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c1-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c1-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-2": {
+   "verdict": "backs",
+   "quote": "Conclusion: Later high school start times (>8:30 am) appear to be associated with lower adolescent driver crash rates, but additional research is needed to confirm this and to identify the mechanism by which this occurs (reduced drowsiness or reduced exposure",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-3": {
+   "verdict": "backs",
+   "quote": "Finally, a study looking at Fairfax County, Virginia, found a reduction in crashes in 16 to 18-year-old drivers when a 50-minute delay was implemented in high school start times",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-4": {
+   "verdict": "backs",
+   "quote": "CONCLUSIONS: Healthy school start times are important for adolescent health and safety, with study findings highlighting the downstream effects of increased sleep duration following a 70-min delay in secondary school start times on adolescent drowsy driving and teen MVC rates",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-5": {
+   "verdict": "backs",
+   "quote": "a substantial body of research has now demonstrated that delaying school start times is an effective countermeasure to chronic sleep loss",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  }
+ }
+}
