@@ -135,6 +135,40 @@ function apiKey(p) {
   return cachedKeys.get(p.name) ?? null;
 }
 
+/* Can the provider actually answer? hasApiKey() only says a key is set: a
+ * rejected key (2026-10-13) and an empty balance (2026-10-29) each stopped
+ * every check while healthcheck.sh said healthy. /api/status's `upstream`
+ * knows about credit only from a real call that failed in the last 15
+ * minutes, so a quiet server says nothing, and no free OpenAI route reports
+ * the balance. So one real, tiny call: nobody's text, at most 16 output
+ * tokens, about 0.002 cents. Only when asked (GET /api/status?probe=1, which
+ * healthcheck.sh sends and the extension never does: its status read gives up
+ * after 1.5 s), at most once a minute however many ask, because the route is
+ * public. That caps it near 3 cents a day; it is not charged to a pool.
+ * { ok, reason?, checkedAt }:
+ *   true   it answered
+ *   false  no_key (missing or rejected) or out_of_credit: every call fails
+ *   null   could not tell: OpenAI is down, rate limited or slow */
+const PROBE_EVERY_MS = 60_000;
+const PROBE_TIMEOUT_MS = 8_000;
+let providerProbe = { at: 0, result: null, running: null };
+export function resetProviderProbe() { providerProbe = { at: 0, result: null, running: null }; }
+export function probeProvider() {
+  if (providerProbe.running) return providerProbe.running;
+  if (providerProbe.result && Date.now() - providerProbe.at < PROBE_EVERY_MS) return Promise.resolve(providerProbe.result);
+  const p = provider();
+  const answer = (ok, reason) => ({ ok, ...(reason ? { reason } : {}), checkedAt: new Date().toISOString() });
+  const running = post(p, p.probeBody(DEFAULT_MODEL), { timeoutMs: PROBE_TIMEOUT_MS }).then(() => answer(true), (err) => {
+    const reason = err?.reason === "out_of_credit" ? "out_of_credit" : String(err?.kind ?? "error");
+    return answer(reason === "out_of_credit" || reason === "no_key" ? false : null, reason);
+  }).then((result) => {
+    providerProbe = { at: Date.now(), result, running: null };
+    return result;
+  });
+  providerProbe = { ...providerProbe, running };
+  return running;
+}
+
 /* OpenAI's strict mode is stricter than Anthropic's was: EVERY property must
  * appear in `required`, and every object needs additionalProperties:false. A
  * schema that breaks either is a 400 at call time, in production, on a path

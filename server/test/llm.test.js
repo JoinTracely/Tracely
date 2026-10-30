@@ -285,13 +285,14 @@ test("the facade keeps its thirteen exports, plus only additive ones", async () 
   // webSearchStructuredCall is one addition: the desktop's forced,
   // schema-checked source search. normalizeEffort is the other: server.js
   // normalises a client's effort once at the route. cacheRetention is the
-  // third: the 24-hour prompt-cache switch, read by structuredCall. The
-  // original thirteen are unchanged.
+  // third: the 24-hour prompt-cache switch, read by structuredCall.
+  // probeProvider and resetProviderProbe are the health probe (/api/status?probe=1,
+  // test/provider-probe.test.js). The original thirteen are unchanged.
   const llm = await fresh();
   assert.deepEqual(Object.keys(llm).sort(), [
     "ALLOWED_MODELS", "DEFAULT_MODEL", "MODEL_PRICES", "MODEL_TIERS", "WEB_SEARCH_CALL_DOLLARS",
     "assertStrictSchema", "cacheRetention", "chooseModel", "costMicroCents", "hasApiKey", "mapApiError",
-    "normalizeEffort", "structuredCall", "textCall", "webSearchCall", "webSearchStructuredCall",
+    "normalizeEffort", "probeProvider", "resetProviderProbe", "structuredCall", "textCall", "webSearchCall", "webSearchStructuredCall",
   ]);
   assert.ok(llm.ALLOWED_MODELS instanceof Set);
 });
