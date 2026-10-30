@@ -319,7 +319,7 @@ test("fair use: a Pro account past $2 today runs at Starter limits — Explain i
   assert.equal(e.body.plan, "pro", "the plan itself is untouched");
   assert.deepEqual(e.body.fairUse, { state: "day", resetsOn: nextUsageDay() });
   assert.equal(e.body.thorough.suspended, true);
-  assert.deepEqual(e.body.limits, { checksPerDay: 400, aiActionsPerDay: 150, flowPerDay: 40, sources: { day: 5, month: 40 } });
+  assert.deepEqual(e.body.limits, { checksPerDay: 150, aiActionsPerDay: 150, flowPerDay: 40, sources: { day: 5, month: 40 } });
   const deep = await explain("fair-deep", { token });
   assert.equal(deep.status, 200, "never a 403: the account still holds Pro");
   assert.deepEqual([deep.body.modelUsed, deep.body.thorough.used], [LUNA, false]);
@@ -332,7 +332,7 @@ test("/api/entitlement: a Pro account sees its limits, source usage and Thorough
   assert.deepEqual(pro.body.thorough, { remainingPct: 100, resetsOn: nextMonthStart() });
   assert.deepEqual(pro.body.fairUse, { state: "ok", resetsOn: null });
   const free = await call("GET", "/api/entitlement", { token: "tok-free-ent" });
-  assert.equal(free.body.limits.checksPerDay, 400);
+  assert.equal(free.body.limits.checksPerDay, 150);
   assert.ok(!("thorough" in free.body) && !("fairUse" in free.body));
 });
 
