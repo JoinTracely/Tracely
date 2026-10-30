@@ -274,7 +274,7 @@ function renderAccount() {
   } else if (beta) {
     $("acctHint").textContent = "This is a Tracely test build, so every check runs on Pro while the beta lasts — no account and nothing to buy. Signing in is optional.";
   } else {
-    $("acctHint").textContent = "Sign in to use the plan you pay for. Not required — without an account Tracely runs on the free tier.";
+    $("acctHint").textContent = "Sign in to fix flags, cite and find sources, and to use the plan you pay for. Any Google account works. Without an account, Tracely still underlines what it finds.";
   }
 }
 
@@ -742,6 +742,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.82", "Signed out, a button on a card asks you to sign in first, then does what you pressed. Tracely still underlines what it finds without an account."],
   ["2.21.81", "Manage subscription opens Tracely's subscription page, where you can change your card, switch plans or cancel. On Student, Get Pro switches your plan there, so you're never billed for two plans."],
   ["2.21.80", "Settings say Pause for an hour and Match my document, the same words as jointracely.com."],
   ["2.21.79", "Dismissing a sentence's card now dismisses the notes on that sentence too, so a claim you dismissed no longer comes back underlined in another colour. Suggest fix works on sources that disagree with your sentence."],

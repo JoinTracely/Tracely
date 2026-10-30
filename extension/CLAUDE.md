@@ -648,7 +648,54 @@ Three things made it look dead, and each is fixed:
 Field mode also no longer re-searches a sentence that already has sources.
 Tests: `server/test/ext-find-source.test.js`.
 
+## Sign in first
+
+Since 2.21.82. Owner, 2026-10-30: "please make sign in more prominent, for
+example when an overlay button is pressed the please sign in first is
+required". Signed out (`needsSignIn`), Tracely still checks, underlines and
+explains. The block is `SIGNIN_FIRST` in the widget chrome, behind
+`FEATURES.signInFirst`.
+- **What asks.** Every button that does something for the writer: fix, cite,
+  copy, delete, search, Review all, on a Free plan's Replace with better claim
+  too. `signInGate` (the widget's shadow root, both modes) and `popSignInGate`
+  (the hover card, which sits outside it) hear the click in the capture phase,
+  so the button's own handler never runs. A new `button.act` or `dmBtn` asks
+  unless it is named as free.
+- **What never asks.** Whatever looks, leaves, takes back or turns Tracely
+  on: `SIGNED_OUT_OK`, `popSignInGate`'s `free` list (by the button's words,
+  the only thing a hover-card button has), and every button that isn't
+  `.act`: Dismiss, Never flag, Close, Settings, the tabs and the folds.
+- **The card.** "Please sign in first", over the page with the page dimmed
+  (`signInSheetOpen`). It goes in the shadow root beside `.root`, because every
+  render rewrites `.root`. Not now, Esc or a click outside closes it. A
+  closed Google window is a cancel, not a failure (`signInFromCard`).
+- **Afterwards.** The press is made again (`pressOf` finds it after a redraw),
+  so the writer gets what they pressed. Pressing Not now while Google's window
+  is open keeps the sign-in and presses nothing. The hover card stays while the
+  card is up and for `SIGNIN_HOLD_MS` after, so the pointer can reach it
+  (`signInOpen`, in `hoverState`). Lookups held for an account start at
+  once (`signedInNow`).
+- **Before any press.** A strip under the panel's tabs (`signInStripHtml`), and
+  a note above the launcher while the panel is closed and something is flagged
+  (`signInNoteHtml`). Its ✕ puts it away for the day, on that site
+  (`tracely.signinNote`).
+- **Cosmetic, like the plan gate.** The server still answers a signed-out
+  call, because installed builds rely on it (`EXTENSION_API`).
+- **School accounts.** Google blocks under-18 Workspace for Education accounts
+  from third-party apps their admin hasn't configured, by default. Any Google
+  account works here and the sign-in never touches the Doc, so the card says
+  to use a personal one. How many students this stops is not measured.
+
+Checked in the browser pane on a Docs stand-in and a text box running the real
+content.js, with a fake worker and `useRelay` forced on: the note, strip, card,
+Not now, the replay in the panel, hover card and field, and both themes. Not
+checked: a real Google sign-in, and real Docs. Tests:
+`server/test/ext-sign-in-first.test.js`.
+
 ## Signed out, and out of searches
+
+Since 2.21.82 a signed-out press stops at Sign in first (above), so the search
+card below shows only with `FEATURES.signInFirst` off.
 
 Owner, 2026-10-16. On being signed out: "it just says it can't find
 sources and doesn't cite anything, without explaining why, so it sounds

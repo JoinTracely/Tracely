@@ -263,6 +263,7 @@
     deepDive: false,      // "Explain in depth" (Pro) in the fix card and the widget cards — off (owner, 2026-10-13: "it should not say explain in depth for pro"); Student and Pro get evidence recommendations instead (canRecommend)
     citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
+    signInFirst: true,    // signed out, a card's button asks the writer to sign in first, then does what they pressed (SIGNIN_FIRST)
     lookupFirst: true,    // a "Needs evidence" or "Missing citation" claim is looked up before it is flagged: refuted, unverified, or no flag (LOOKUP_FIRST; owner, 2026-10-23)
     evidenceHints: true,  // "Evidence recommendations": suggested, searched only on a click (evidenceCandidates) — Student and Pro only (canRecommend)
     resumeTips: false,    // on a resume: free format rules, plus /api/review's bullet and typo notes — off: no writing tips (owner, 2026-10-13)
@@ -4593,8 +4594,107 @@
       refreshTier();
       return true;
     }
-    if (!/cancel/i.test(String(r?.message ?? ""))) openSettings("account");
+    if (!/cancel|did not approve/i.test(String(r?.message ?? ""))) openSettings("account"); // "did not approve": Chrome's words for a closed sign-in window
     return false;
+  }
+  /* Sign in first. Owner, 2026-10-30: "please make sign in more prominent, for
+     example when an overlay button is pressed the please sign in first is
+     required". Signed out (needsSignIn), Tracely still checks, underlines and
+     explains. A button that fixes, cites, copies or searches asks first, in
+     one card over the page (signInSheetOpen), and once signed in the press is
+     made again, so the writer gets what they pressed. It is heard in the
+     capture phase, ahead of the button's own handler: one rule for every card
+     in both modes, and a button added later asks unless it is named here.
+     Looking, leaving, taking back and turning Tracely on never ask
+     (SIGNED_OUT_OK, and popSignInGate's list for the hover card). The panel
+     and the launcher say so before any press (signInStripHtml, signInNoteHtml).
+     Cosmetic like the plan gate: the server still answers a signed-out call.
+     A school's Google account can be barred from apps its admin hasn't
+     approved, and any Google account works here, so the card says so. */
+  const SIGNIN_FIRST = {
+    head: "Please sign in first",
+    body: "Your free Tracely account fixes what's flagged, cites sources and looks claims up. Any Google account works, so if your school blocks it, use a personal one.",
+    strip: "Sign in to fix flags, find sources and have claims looked up.",
+    note: "Sign in to fix what Tracely flagged",
+    noteButton: "Sign in",
+    working: "Signing in…",
+  };
+  const SIGNED_OUT_OK = "[data-signin],[data-upgrade],[data-rec-plans],[data-better-later],[data-trim-keep],[data-doc-undo],[data-ready-show],[data-fxp-stop],[data-fxp-none],[data-fxp-list],[data-fx-skip],[data-fx-close],[data-walk-stop],#docsOn,#docsNotNow,#siteSwitch,#tracelyResume,#tracelyPausedSettings";
+  const SIGNIN_HOLD_MS = 4_000; // the hover card a press came from stays this long after a sign-in, to be reached
+  let signInSheet = null; // the card on screen: { el }
+  let signInHoldUntil = 0;
+  let signingIn = null; // the sign-in under way: a second press joins it
+  let signedInNow = null; // set by each mode: what was waiting for an account starts (its lookups)
+  const signInAsks = () => FEATURES.signInFirst && needsSignIn();
+  const signInOpen = () => Boolean(signInSheet) || Date.now() < signInHoldUntil;
+  function signInNow() {
+    signingIn ??= signInFromCard().then((ok) => {
+      signingIn = null;
+      if (ok) { tierChanged(); signedInNow?.(); } // at once: the strip and the note go, and refreshTier sees no change to report
+      return ok;
+    });
+    return signingIn;
+  }
+  function closeSignInSheet() {
+    signInSheet?.el.remove();
+    signInSheet = null;
+  }
+  // `pressAgain` finds the button that was pressed, or what a render drew in its place. `closed` hands a hover card back to the pointer.
+  function signInSheetOpen(shadow, pressAgain, closed = () => {}) {
+    closeSignInSheet();
+    const el = document.createElement("div");
+    el.className = "signin-sheet";
+    el.innerHTML = `<div class="signin-card" role="dialog" aria-modal="true" aria-labelledby="signinHead">${MARK_SOLID_SVG}<div class="signin-head" id="signinHead">${esc(SIGNIN_FIRST.head)}</div><div class="signin-body">${esc(SIGNIN_FIRST.body)}</div><div class="row"><button class="act primary" data-signin-go="1">${esc(SIGNIN_COPY.button)}</button><button class="act" data-signin-later="1">${esc(SIGNIN_COPY.later)}</button></div></div>`;
+    const later = () => { if (signInSheet?.el !== el) return; closeSignInSheet(); closed(); };
+    const go = el.querySelector("[data-signin-go]");
+    go.addEventListener("click", async () => {
+      go.disabled = true;
+      go.textContent = SIGNIN_FIRST.working;
+      const ok = await signInNow();
+      if (signInSheet?.el !== el) return; // "Not now" while Google's window was open: signed in, and nothing is pressed
+      closeSignInSheet();
+      if (!ok) { closed(); return; }
+      signInHoldUntil = Date.now() + SIGNIN_HOLD_MS;
+      setTimeout(closed, SIGNIN_HOLD_MS);
+      pressAgain()?.click();
+    });
+    el.querySelector("[data-signin-later]").addEventListener("click", later);
+    el.addEventListener("click", (e) => { if (e.target === el) later(); }); // the page around the card
+    el.addEventListener("keydown", (e) => { if (e.key === "Escape") later(); });
+    shadow.appendChild(el); // beside the root, which every render rewrites
+    signInSheet = { el };
+    go.focus();
+  }
+  // A selector for the same button once a render has redrawn it; "" for one with nothing to find it by.
+  function pressOf(btn) {
+    const marks = [...btn.attributes].filter((a) => a.name.startsWith("data-"));
+    return marks.length ? `button${marks.map((a) => `[${a.name}="${CSS.escape(a.value)}"]`).join("")}` : "";
+  }
+  function signInGate(e, shadow) {
+    const btn = e.target?.closest?.("button");
+    if (!btn || btn.closest(".signin-sheet")) return;
+    if (btn.matches("[data-signin-now]")) { signInNow(); return; }
+    if (btn.matches("[data-signin-note-x]")) { lsSet(SIGNIN_NOTE_KEY, new Date().toDateString()); tierChanged(); return; }
+    if (!signInAsks() || !btn.matches("button.act") || btn.matches(SIGNED_OUT_OK)) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    const press = pressOf(btn);
+    signInSheetOpen(shadow, () => (btn.isConnected ? btn : press ? shadow.querySelector(press) : null));
+  }
+  // Under the panel's tabs, in both modes.
+  function signInStripHtml() {
+    return signInAsks() ? `<div class="signin-strip"><span>${esc(SIGNIN_FIRST.strip)}</span><button class="act primary" data-signin-now="1">${esc(SIGNIN_COPY.button)}</button></div>` : "";
+  }
+  /* Above the launcher while the panel is closed and something is flagged: the
+     one place it shows before the writer opens anything. Dismissed, it stays
+     away for the day, on this site. */
+  const SIGNIN_NOTE_KEY = "tracely.signinNote";
+  let signInNoteUp = false; // on screen: only a new one rises in (the widget re-renders often)
+  function signInNoteHtml(flags) {
+    const show = flags > 0 && signInAsks() && lsGet(SIGNIN_NOTE_KEY) !== new Date().toDateString();
+    const enter = show && !signInNoteUp ? " enter" : "";
+    signInNoteUp = show;
+    return show ? `<div class="ready-ping${enter}" role="status"><span class="ready-text">${esc(SIGNIN_FIRST.note)}</span><button class="act primary" data-signin-now="1">${esc(SIGNIN_FIRST.noteButton)}</button><button class="x" data-signin-note-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>` : "";
   }
   function searchFailureNote(err) {
     const kind = err?.kind;
@@ -4758,7 +4858,8 @@
       <button class="hbtn" id="panelSettings" title="Settings" aria-label="Tracely settings">${GEAR_SVG}</button>
       <button class="hbtn close" id="panelClose" title="Close" aria-label="Close">${CLOSE_SVG}</button>
     </div>
-    ${tabs.length ? `<div class="tabs" role="toolbar" aria-label="Show findings by kind">${tabs.join("")}</div>` : ""}`;
+    ${tabs.length ? `<div class="tabs" role="toolbar" aria-label="Show findings by kind">${tabs.join("")}</div>` : ""}
+    ${typeof signInStripHtml === "function" ? signInStripHtml() : "" /* (absent from server/test's slices) */}`;
   }
   // The claim cards, all of them: foldCards keeps one open. `cards` pairs each hash with its HTML.
   function cardListHtml(cards) {
@@ -5678,6 +5779,7 @@
       /* The widget's own neutrals (Settings → General → Appearance: themeDark). */
       --w-ink: #1a1a1f; --w-muted: #6b6c72; --w-hint: #9a9ba1; --w-faint: #8a8b90; --w-sub: #55565c; --w-dim: #3a3b40;
       --w-line: #ececee; --w-edge: #e4e4e7; --w-ctl: #d4d4d8; --w-ctl-hover: #c4c4ca;
+      --w-scrim: rgba(0,0,0,.28);
       --w-fill: #f4f4f5; --w-fill-hover: #ececee; --w-hover: #f2f2f2; --w-soft: #f7f7f8; --w-ins: #efeff2;
       --w-frame: #000; --w-primary: #1a1a1f; --w-primary-hover: #000; --w-on-primary: #fff; --w-on-primary-dim: rgba(255,255,255,.7);
       --w-ok-ink: #1f7a4d; --w-bad-ink: #b02a2a; --w-link-ink: #245d99;
@@ -5697,6 +5799,7 @@
       --shadow-sm: 0 1px 3px rgba(0,0,0,.4); --shadow-lg: 0 20px 40px rgba(0,0,0,.5);
       --w-ink: #f6f6f8; --w-muted: rgba(246,246,248,.66); --w-hint: rgba(246,246,248,.45); --w-faint: rgba(246,246,248,.5); --w-sub: rgba(246,246,248,.72); --w-dim: rgba(246,246,248,.8);
       --w-line: rgba(255,255,255,.1); --w-edge: rgba(255,255,255,.12); --w-ctl: rgba(255,255,255,.22); --w-ctl-hover: rgba(255,255,255,.32);
+      --w-scrim: rgba(0,0,0,.5);
       --w-fill: rgba(255,255,255,.06); --w-fill-hover: rgba(255,255,255,.1); --w-hover: rgba(255,255,255,.08); --w-soft: rgba(255,255,255,.05); --w-ins: rgba(255,255,255,.12);
       --w-frame: rgba(255,255,255,.22); --w-primary: #f6f6f8; --w-primary-hover: #ffffff; --w-on-primary: #17171b; --w-on-primary-dim: rgba(23,23,27,.7);
       --w-ok-ink: #4fbf85; --w-bad-ink: #f07a7a; --w-link-ink: #82b4ee;
@@ -6107,6 +6210,17 @@
     .gate-head { font-size: 13px; font-weight: 600; color: var(--w-ink); }
     .gate-body { font-size: 12px; line-height: 1.45; color: var(--w-muted); }
     .gate .row { margin-top: 4px; flex-wrap: wrap; }
+    /* Sign in first (SIGNIN_FIRST): grey too, and the one card over the page. */
+    .signin-strip { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 10px 14px 10px 20px; background: var(--w-soft); border-bottom: 1px solid var(--w-line); font-size: 12px; line-height: 1.4; color: var(--w-ink); }
+    .signin-strip span { flex: 1; min-width: 0; }
+    .signin-strip button.act { flex-shrink: 0; padding: 6px 12px; font-size: 12px; }
+    .signin-sheet { position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--w-scrim); }
+    .signin-card { width: 360px; max-width: 100%; display: flex; flex-direction: column; gap: 10px; padding: 20px; border-radius: 14px; background: var(--surface); border: 1px solid var(--w-edge); box-shadow: var(--shadow-lg); color: var(--w-ink); animation: tracely-ping-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+    .signin-card .head-mark { width: 24px; height: 24px; }
+    .signin-head { font-size: 16px; font-weight: 600; line-height: 1.3; }
+    .signin-body { font-size: 13px; line-height: 1.45; color: var(--w-muted); }
+    .signin-card .row { margin-top: 6px; }
+    @media (prefers-reduced-motion: reduce) { .signin-card { animation: none; } }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
       flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--r-btn);
@@ -6153,6 +6267,7 @@
     shadow.addEventListener("error", (e) => {
       if (e.target?.classList?.contains("pill-mark")) e.target.outerHTML = `<span class="plane">${PLANE_SVG}</span>`;
     }, true);
+    shadow.addEventListener("click", (e) => signInGate(e, shadow), true); // Sign in first: ahead of every button's own handler
     return { host, shadow, root };
   }
 
@@ -7987,6 +8102,7 @@
         color: primary ? DM.onInk : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
       }, label);
       b.type = "button";
+      b.setAttribute?.("data-dm-act", ""); // Sign in first: popSignInGate hears it
       b.disabled = disabled;
       if (title) b.title = title;
       if (!disabled) {
@@ -8015,6 +8131,7 @@
         background: `linear-gradient(135deg, ${DM.orange}, ${DM.red})`, boxShadow: "0 2px 10px rgba(255, 89, 0, .35)",
       });
       b.type = "button";
+      b.setAttribute?.("data-dm-act", ""); // Sign in first, as dmBtn
       const sheen = el("span", { position: "absolute", top: "0", bottom: "0", left: "-60%", width: "45%", pointerEvents: "none", transform: "skewX(-18deg)", background: "linear-gradient(100deg, transparent, rgba(255, 255, 255, .55), transparent)" });
       if (!reducedMotion() && typeof sheen.animate === "function") sheen.animate([{ left: "-60%" }, { left: "-60%", offset: 0.55 }, { left: "130%" }], { duration: 2800, iterations: Infinity, easing: "ease-in-out" });
       else sheen.style.display = "none";
@@ -8411,6 +8528,7 @@
       popEl.addEventListener("pointerenter", () => { popHeld = true; });
       // Leaving the card is a move the hover hears even if the page swallows the ones after it.
       popEl.addEventListener("pointerleave", (e) => { popHeld = false; hoverPt = { x: e.clientX, y: e.clientY }; hoverHit(); });
+      popEl.addEventListener("click", popSignInGate, true);
       popEditSyncs.add(paintPop); // every edit-state change repaints the card
       paintPop();
       popEl.style.visibility = "hidden";
@@ -8424,6 +8542,20 @@
       popLostAt = 0;
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
       paintDocsActive();
+    }
+    /* Sign in first, on the hover card (SIGNIN_FIRST). Its buttons sit outside
+       the widget's shadow root and carry only their words, so the words say
+       which may run signed out; its rows and pills only change what it shows. */
+    function popSignInGate(e) {
+      const btn = e.target?.closest?.("[data-dm-act]");
+      if (!btn || !signInAsks()) return;
+      const label = btn.textContent.trim();
+      const free = [POP_COPY.dismiss, POP_COPY.back, POP_COPY.done, POP_COPY.undo, POP_COPY.undoing, POP_COPY.cancel, POP_COPY.keepWriting, POP_COPY.openArticle, RECEIPT_COPY.open,
+        SIGNIN_COPY.button, SIGNIN_COPY.later, TRIM_COPY.keep, BETTER_COPY.later, BETTER_COPY.up.pro, BETTER_COPY.up.student, OUT_COPY.pro, OUT_COPY.student, RECOMMEND_COPY.seePlans];
+      if (free.includes(label)) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      signInSheetOpen(shadow, () => (btn.isConnected ? btn : [...(popEl?.querySelectorAll("[data-dm-act]") ?? [])].find((b) => b.textContent.trim() === label)), hoverHit);
     }
     function showDocsPopover(hash, rect, anchorBar) {
       if (!cache.get(hash) && !tipMarkById.has(hash)) return;
@@ -9366,7 +9498,8 @@
       let onCard = false, inTri = false;
       if (popEl) {
         const pb = popEl.getBoundingClientRect();
-        onCard = x >= pb.left - 12 && x <= pb.right + 12 && y >= pb.top - 12 && y <= pb.bottom + 12;
+        onCard = (typeof signInOpen === "function" && signInOpen()) // the card that asked stays while the writer signs in
+          || (x >= pb.left - 12 && x <= pb.right + 12 && y >= pb.top - 12 && y <= pb.bottom + 12);
         if (!onCard && !onOwn) inTri = inSafeTriangle(popApex, (popCard ?? popEl).getBoundingClientRect(), x, y);
       }
       // Not while pinned: an edit from this card is still settling. And not
@@ -13059,6 +13192,7 @@
     const { shadow, root } = makeWidget();
     // The plan decides whether "Explain in depth" is offered or locked.
     tierListeners.push(() => render());
+    signedInNow = () => autoFindSources([]); // claims held for a lookup need not wait for the next check
 
     /* The ask. One card, the app's shape, and the one decision it needs. */
     /* Turn off: the same switch the consent card turns on (docsEnabled), so it
@@ -13291,6 +13425,7 @@
       root.innerHTML = `
         ${panelHtml}
         ${readyPingHtml()}${typeof fixPingHtml === "function" ? fixPingHtml() : "" /* (absent from server/test's slices of render) */}
+        ${typeof signInNoteHtml === "function" ? signInNoteHtml(expanded ? 0 : issues.length) : ""}
         ${launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
@@ -13712,6 +13847,7 @@
     }
     // Same as docs mode; only repaint if the panel exists.
     tierListeners.push(() => { if (widget) render(); });
+    signedInNow = () => autoFindSources([]); // as in Docs mode
 
     /* ── editable tracking ── */
 
@@ -14879,6 +15015,7 @@
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
       root.innerHTML = `
         ${panelHtml}
+        ${typeof signInNoteHtml === "function" ? signInNoteHtml(expanded || quiet ? 0 : issues.length) : ""}
         ${quiet
           ? `<div class="pill quiet" id="pill">${PILL_MARK}Tracely is off here</div>`
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}

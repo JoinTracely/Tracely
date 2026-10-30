@@ -127,7 +127,7 @@ test("every pill and panel head that names Tracely shows its mark; the plane is 
   const CONTENT = read("content.js");
   assert.equal((CONTENT.match(/\$\{PILL_MARK\}/g) || []).length, 4, "orphan, Docs consent pill, 'Tracely is off here', paused from Settings (2026-10-16)");
   // A panel's head draws the mark in one solid colour (owner, 2026-10-14: "make it a solid color").
-  assert.equal((CONTENT.match(/\$\{MARK_SOLID_SVG\}/g) || []).length, 3, "the panel's head, the Docs consent card's, and the paused card's");
+  assert.equal((CONTENT.match(/\$\{MARK_SOLID_SVG\}/g) || []).length, 4, "the panel's head, the Docs consent card's, the paused card's, and the sign-in card's");
   assert.equal((CONTENT.match(/<span class="plane">\$\{PLANE_SVG\}<\/span>/g) || []).length, 1, "the plane in a circle only as the fallback");
   assert.match(CONTENT, /shadow\.addEventListener\("error", \(e\) => \{\n\s+if \(e\.target\?\.classList\?\.contains\("pill-mark"\)\) e\.target\.outerHTML = `<span class="plane">\$\{PLANE_SVG\}<\/span>`;\n\s+\}, true\);/, "a page that refuses data: images");
 });
