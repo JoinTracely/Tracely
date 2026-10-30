@@ -636,6 +636,15 @@ function orderUrl(userId) {
   return `${ORDER_URL}?uid=${encodeURIComponent(userId)}`;
 }
 
+/* Stripe's customer portal, as options.js PORTAL_URL (a test keeps the two
+   equal). A Student's Get Pro opens it, never the order page: a Payment Link
+   always starts a NEW subscription, so Student buying Pro there would be
+   billed for both. The portal switches the plan on the one subscription. */
+const PORTAL_URL = "https://billing.stripe.com/p/login/00wdR96Xm7Co4sF2lLbsc00";
+function portalUrl(email) {
+  return email ? `${PORTAL_URL}?prefilled_email=${encodeURIComponent(email)}` : PORTAL_URL;
+}
+
 /* Whether a message came from one of this extension's OWN pages (the options
    page) rather than a content script. A content script runs inside somebody
    else's page and draws into an OPEN shadow root on it, so anything it is
@@ -719,6 +728,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const ent = await fetchEntitlement();
+        // Already paying (a test build's Pro grant is not paying): the plan
+        // changes on the subscription page, never at a second checkout.
+        if ((ent?.plan === "student" || ent?.plan === "pro") && !ent?.beta) {
+          await chrome.tabs.create({ url: portalUrl(ent.email) });
+          sendResponse({ ok: true });
+          return;
+        }
         await chrome.tabs.create({ url: orderUrl(ent?.userId) });
         sendResponse({ ok: true });
       } catch (err) {
