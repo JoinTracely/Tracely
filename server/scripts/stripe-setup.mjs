@@ -52,10 +52,17 @@ const API_BASE = (() => {
  * the Pro link being billed for both. */
 const PLANS = [
   { key: "student", product: "Tracely Student", cents: 1000, env: "STRIPE_PRICE_STUDENT",
-    blurb: "No daily check limit, 100 source searches a month and auto-sources for one writer." },
+    blurb: "No daily check limit, 100 source searches a month (up to 20 a day), Replace with better claim and evidence recommendations." },
   { key: "pro", product: "Tracely Pro", cents: 1799, env: "STRIPE_PRICE_PRO",
-    blurb: "Everything in Student plus Thorough explanations from Tracely's largest model and 250 source searches a month." },
+    blurb: "Everything in Student, with 250 source searches a month (up to 40 a day) and twice Student's fair-use allowance." },
 ];
+/* The blurbs are what Stripe's checkout shows under each plan, so they say
+   only what the pricing page says (shared/plan.js SOURCE_LIMITS and
+   FAIR_USE). Until 2026-10-29 they promised auto-sources, which is off
+   (FEATURES.autoSources), and Thorough explanations, which the extension no
+   longer offers (FEATURES.deepDive). A product that already exists keeps its
+   description: change it in the Dashboard (Product catalog → the product →
+   Edit). */
 const WEBHOOK_URL = "https://api.jointracely.com/api/billing/webhook";
 // Four, not three. lib/billing.js:174 handles customer.subscription.created
 // even though BILLING.md's prose lists only three.
