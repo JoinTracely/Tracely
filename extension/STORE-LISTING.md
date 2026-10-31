@@ -41,7 +41,7 @@ Plans
 Starter is free and flags mistakes with their fixes and sources. Student and Pro also suggest evidence that would make your writing stronger, with more source searches each day.
 
 Privacy
-Nothing is read until you turn Tracely on for Docs or for a site. The text you check is sent to Tracely's server and on to OpenAI to be judged, and it isn't stored. No account is needed. Read the full policy at https://github.com/JoinTracely/Tracely/blob/main/PRIVACY.md
+Nothing is read until you turn Tracely on for Docs or for a site. The text you check is sent to Tracely's server and on to OpenAI to be judged, and it isn't stored. You can see what Tracely flags without an account; fixing a flag, citing or finding a source asks you to sign in with Google, on the free plan. Read the full policy at https://github.com/JoinTracely/Tracely/blob/main/PRIVACY.md
 ```
 
 **Category:** Education.
@@ -100,5 +100,5 @@ Public, all regions.
 ```
 This listing replaces dffmoeebkkghhgcklkbmaibfhgiegmdm, which was published from a former co-developer's account. It is the same product, moved to its owner's own developer account; the old listing is no longer updated.
 
-No account is needed to test. Open any Google Doc, click the Tracely button at the bottom right of the page and turn Tracely on for Docs, then type "The Eiffel Tower is in Berlin." Within a few seconds it is underlined in red with a fix. In a text box on any other site, turn Tracely on for that site from the same button.
+Open any Google Doc, click the Tracely button at the bottom right of the page and turn Tracely on for Docs, then type "The Eiffel Tower is in Berlin." Within a few seconds it is underlined in red, with no account needed. Hover over the underline and press Suggest fix: Tracely asks you to sign in with Google first, and any Google account works, on the free plan. It then shows the fix. In a text box on any other site, turn Tracely on for that site from the same button.
 ```

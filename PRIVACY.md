@@ -1,6 +1,9 @@
 # Tracely Privacy Policy
 
-*Effective: 24 October 2026. This update says how long OpenAI may keep the
+*Effective: 30 October 2026. This update says that the extension asks you to
+sign in with Google before it fixes a flag, cites or finds a source; what we
+keep when you sign in has not changed (see "The short version"). The 24
+October 2026 version said how long OpenAI may keep the
 text it checks (up to 30 days, in its abuse-monitoring logs, never for
 training), names who hosts our server (Railway, since 23 October 2026) and
 our website (Vercel), covers the website itself, sets the minimum age at 13,
@@ -45,8 +48,10 @@ the product it describes.
 - Google Docs is checked only after you turn Tracely on for Docs, once. Other
   sites are checked only after you turn Tracely on for that site. Until then
   nothing is read from the page.
-- No account is needed. If you sign in with Google, we keep your email
-  address and account id and the plan attached to them.
+- You don't need an account for Tracely to check your writing. In the
+  extension, fixing a flag, citing or finding a source asks you to sign in
+  with Google. If you sign in, we keep your email address and account id and
+  the plan attached to them.
 - We keep usage counts against your account (or an anonymous install id) for
   13 months, and payment records (which plan, when) for as long as you have
   an account.
