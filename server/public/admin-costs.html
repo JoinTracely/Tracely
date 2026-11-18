@@ -44,9 +44,13 @@
   .share { display: inline-block; height: 6px; border-radius: 3px; background: var(--bar); vertical-align: middle; margin-right: 6px; }
   .bad { color: var(--bad); }
   .stack { display: grid; gap: 16px; }
+  /* A grid item is as wide as its widest table unless told otherwise; the
+     tables scroll inside their cards instead of widening the page. */
+  .stack > * { min-width: 0; }
   .note { color: var(--muted); font-size: 13px; margin-top: 18px; }
   .err { color: var(--bad); margin-top: 10px; min-height: 1.5em; }
   svg text { fill: var(--muted); font-size: 11px; }
+  code { font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; user-select: all; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -55,7 +59,7 @@
   <div class="head">
     <div>
       <h1>Tracely costs</h1>
-      <p class="sub">What each check, lookup and search has cost, from the server's own records.</p>
+      <p class="sub">What each check, lookup and search has cost, and who used Tracely, from the server's own records.</p>
     </div>
     <div class="row" id="controls" hidden>
       <span id="ranges" class="row"></span>
@@ -76,6 +80,17 @@
 
   <div id="report" class="stack" hidden>
     <div class="tiles" id="tiles"></div>
+    <h2 style="margin:8px 0 0">Who uses Tracely</h2>
+    <div class="tiles" id="whoTiles"></div>
+    <section class="card">
+      <h2>Active by day</h2>
+      <div class="scroll"><table id="whoDays"></table></div>
+    </section>
+    <section class="card">
+      <h2>Each user</h2>
+      <div class="scroll"><table id="who"></table></div>
+      <p class="note" id="whoNote"></p>
+    </section>
     <section class="card">
       <h2>By action</h2>
       <div class="scroll"><table id="actions"></table></div>
@@ -182,6 +197,8 @@
       ["Spent today, all pools", `$${today.toFixed(2)}`, pools.map(([k, p]) => `${POOLS[k] ?? k} $${(p.spentUsd || 0).toFixed(2)} of $${(p.budgetUsd || 0).toFixed(0)}`).join(" · ")],
     ].map(([k, v, n]) => `<div class="card tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
 
+    renderWho(r.users);
+
     $("actions").innerHTML = `<thead><tr><th>Action</th><th>Count</th><th>Total</th><th>Share</th><th>Average</th><th>Median</th><th>95th pct</th><th>Most</th><th>Searches each</th><th>Tokens in / out</th><th>Cached</th><th>Cheaper search answered</th><th>Time</th><th>Failed</th></tr></thead><tbody>${
       r.actions.length ? r.actions.map((a) => `<tr>
         <td>${esc(label(a.action))}${LABELS[a.action] ? `<span class="key">${esc(a.action)}</span>` : ""}</td>
@@ -224,7 +241,45 @@
         <td class="bad">${x.ok ? "" : "failed"}</td></tr>`).join("") : `<tr><td colspan="10">Nothing yet.</td></tr>`
     }</tbody>`;
 
-    $("note").textContent = `Costs are the server's estimate: tokens at the prices in server/shared/prices.js, plus $0.01 for each OpenAI web search and the cheaper search's own price (TRACELY_SEARCH_PRICE_PER_1K_USD). OpenAI's usage page is the bill. Records are kept ${r.keepDays} days, with no account and no text.`;
+    $("note").textContent = `Costs are the server's estimate: tokens at the prices in server/shared/prices.js, plus $0.01 for each OpenAI web search and the cheaper search's own price (TRACELY_SEARCH_PRICE_PER_1K_USD). OpenAI's usage page is the bill. Cost records are kept ${r.keepDays} days, with no account and no text.`;
+  }
+
+  /* Who uses Tracely (server/lib/callerReport.js): the usage counts the server
+     already keeps per account or install, read back by day and by caller. */
+  const TYPE = { account: "Account", "signed-out": "Signed out", "try-out": "Try-out page" };
+  function renderWho(u) {
+    if (!u) { $("whoTiles").innerHTML = `<p class="sub">This server doesn't report users yet.</p>`; return; }
+    const t = u.totals;
+    const span = days === 1 ? "today" : `last ${days} days`;
+    $("whoTiles").innerHTML = [
+      [`Accounts active, ${span}`, t.accounts.toLocaleString(), `${t.newAccounts} new · ${t.desktopAccounts} on the desktop app`],
+      [`Signed-out installs, ${span}`, t.signedOut.toLocaleString(), `${t.newSignedOut} new · the extension with no account`],
+      [`Try-out visitors, ${span}`, t.tryOut.toLocaleString(), `${t.newTryOut} new · the website's try-out`],
+      ["What they spent", money(t.cents), "all three together"],
+    ].map(([k, v, n]) => `<div class="card tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+
+    const daysDesc = [...u.byDay].reverse();
+    $("whoDays").innerHTML = `<thead><tr><th>Day</th><th>Accounts</th><th>Signed out</th><th>Try-out</th><th>New accounts</th><th>New signed out</th><th>New try-out</th><th>Spent</th></tr></thead><tbody>${
+      daysDesc.map((d) => `<tr>
+        <td>${esc(d.day)}</td><td>${d.accounts}</td><td>${d.signedOut}</td><td>${d.tryOut}</td>
+        <td>${d.newAccounts}</td><td>${d.newSignedOut}</td><td>${d.newTryOut}</td><td>${money(d.cents)}</td></tr>`).join("")
+    }</tbody>`;
+
+    const idCell = (c) => c.type === "account" ? `<code>${esc(c.id.replace(/^user:/, ""))}</code>` : `<code>${esc(c.id)}</code>`;
+    $("who").innerHTML = `<thead><tr><th>User</th><th>Kind</th><th>First seen</th><th>Last active</th><th>Days active</th><th>Checks</th><th>Source searches</th><th>Lookups</th><th>Desktop calls</th><th>Spent</th></tr></thead><tbody>${
+      u.callers.length ? u.callers.map((c) => `<tr>
+        <td>${idCell(c)}</td>
+        <td>${esc(TYPE[c.type] ?? c.type)}${c.type === "account" && c.desktop ? " (desktop)" : ""}</td>
+        <td>${esc(c.firstDay)}</td><td>${esc(c.lastDay)}</td><td>${c.activeDays}</td>
+        <td>${c.checks}</td><td>${c.searches}</td><td>${c.lookups}</td><td>${c.desktop}</td>
+        <td><b>${money(c.cents)}</b></td></tr>`).join("") : `<tr><td colspan="10">Nobody used Tracely in this range.</td></tr>`
+    }</tbody>`;
+    $("whoNote").textContent = [
+      u.callerCount > u.callers.length ? `Showing the ${u.callers.length} who spent the most, of ${u.callerCount}.` : "",
+      "An account's id is its Supabase user id: search for it in Supabase, Authentication, Users. A desktop account is the app's own anonymous session.",
+      "Signed out is an extension with no account, by a hash of its install id. Try-out is a visitor to the website's try-out.",
+      "Checks are counted only on Free, so a Student or Pro account's checks show only in Spent. First seen is the earliest day on record (13 months).",
+    ].filter(Boolean).join(" ");
   }
 
   $("login").addEventListener("submit", (e) => {

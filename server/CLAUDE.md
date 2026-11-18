@@ -380,7 +380,15 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
       (sessionStorage). Without the variable, or with one under 24 characters,
       the route is a 404. A wrong token is a 401. Another site's page is
       refused by the origin guard before the route runs.
-    Tests: `test/cost-ledger.test.js`.
+    - **Who uses Tracely** (2026-11-18, `lib/callerReport.js`, `users` in
+      the same answer): accounts, signed-out installs and try-out visitors
+      active each day, how many were new, and each caller's checks,
+      searches, lookups, desktop calls and spend. It records nothing new: it
+      reads the per-caller usage counts entitlement_usage already keeps (13
+      months). Account ids, never emails; install and try-out ids are short
+      hashes. A Student or Pro account's checks are not counted (no limit),
+      so they show only in its spend.
+    Tests: `test/cost-ledger.test.js`, `test/caller-report.test.js`.
   - **`TRACELY_PROMPT_CACHE_KEY=caller`** (off by default) sends a hashed
     per-caller `prompt_cache_key` on `/api/check`. It changes where a call
     runs, never what it answers. It is off because a cache write costs more
