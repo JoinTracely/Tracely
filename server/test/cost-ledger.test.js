@@ -182,7 +182,8 @@ test("with the token: refused without it or with a wrong one; with it, a check s
     assert.equal(body.recent[0].action, "check");
     assert.ok(body.pools && "extension" in body.pools);
     assert.equal(body.keepDays, KEEP_DAYS);
-    assert.doesNotMatch(JSON.stringify(body), /Water boils|cost-test/, "no text, no caller");
+    assert.ok(body.users && Array.isArray(body.users.callers) && body.users.byDay.length === 1, "who used it (lib/callerReport.js), today only");
+    assert.doesNotMatch(JSON.stringify(body), /Water boils|cost-test/, "no text, and never a raw install id");
   } finally { child.kill(); }
 });
 

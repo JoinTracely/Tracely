@@ -23,6 +23,7 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, verifyQuota, rec
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, reservedMicroCents, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { tallyCall, takeUsageLines, tallyCache } from "./lib/usageTally.js";
 import { noteActionCost, recordAction, costReport, KEEP_DAYS } from "./lib/costLedger.js";
+import { callerReport } from "./lib/callerReport.js";
 import { searchProvider } from "./lib/searchApi.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { tallyStages, takeStageLines } from "./lib/stageTally.js";
@@ -1488,8 +1489,11 @@ const server = http.createServer(async (req, res) => {
 
     /* What each action cost (lib/costLedger.js), for the operator: totals,
      * per action (count, total, average, median, p95), per day, and the
-     * latest actions. With today's spend and budget per pool. No caller, no
-     * text. No CORS: the page that reads it is served from here. */
+     * latest actions. With today's spend and budget per pool. The actions
+     * hold no caller and no text; `users` (lib/callerReport.js) is who was
+     * active, by account id or hashed install id, read from the usage counts
+     * the server already keeps. No CORS: the page that reads it is served
+     * from here. */
     if (req.method === "GET" && url.pathname === "/api/admin/costs") {
       loadEnvFile();
       const want = adminToken();
@@ -1499,7 +1503,7 @@ const server = http.createServer(async (req, res) => {
       const days = clamp(url.searchParams.get("days"), 1, KEEP_DAYS, 7);
       const recent = clamp(url.searchParams.get("recent"), 1, 500, 50);
       const pools = Object.fromEntries(["extension", "paid", "beta", "app", "demo"].map((pool) => [pool, spendSummary({ enforced: true, pool })]));
-      json(res, 200, { ...costReport({ days, recent }), pools, keepDays: KEEP_DAYS });
+      json(res, 200, { ...costReport({ days, recent }), users: callerReport({ days }), pools, keepDays: KEEP_DAYS });
       return;
     }
 
