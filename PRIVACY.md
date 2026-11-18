@@ -1,6 +1,8 @@
 # Tracely Privacy Policy
 
-*Effective: 30 October 2026. This update says that the extension asks you to
+*Effective: 18 November 2026. This update says that the website counts its
+visits with Vercel Web Analytics, with no cookie (see "The website"). The 30
+October 2026 version said that the extension asks you to
 sign in with Google before it fixes a flag, cites or finds a source; what we
 keep when you sign in has not changed (see "The short version"). The 24
 October 2026 version said how long OpenAI may keep the
@@ -151,6 +153,14 @@ sources" describes, and more if you ask, without the labels. The extension's
 sets no advertising or
 analytics cookies.
 
+The website counts its visits with Vercel Web Analytics. For each page view,
+Vercel records the page, the site that linked to it, and the country, device,
+browser and operating system. It sets no cookie. It tells visitors apart with
+a hash of the request, which it discards after 24 hours, and shows us only
+totals. Before a page view is sent, the website cuts its address to the page
+itself, keeping only the `utm_` and `ref` labels that say where a visitor came
+from. So the one-time code in the sign-in page's address never reaches Vercel.
+
 **Every request** to our server carries a random install id, generated once
 per browser profile, so plan limits and fair-use caps can be applied without
 an account. It identifies a browser, not a person, and is stored hashed. When
@@ -239,7 +249,8 @@ removes the rest.
   passing through for the seconds a check takes, and the records in the table
   above.
 - **Vercel** — hosts the website, jointracely.com, and receives the requests
-  a web host does (IP address, page, browser).
+  a web host does (IP address, page, browser). It also counts the website's
+  visits (Web Analytics, above).
 - **Google Fonts** — serves the website's typeface (above).
 
 None of them receives more than the feature needs, and none is permitted to
